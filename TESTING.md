@@ -52,16 +52,20 @@ vite: 47 modules transformed, dist/index.html + dist/settings.html built
 
 ### 3. Dev server
 
-`npx vite --host 0.0.0.0 --port 1420` → `GET /` and `GET /settings.html` both
-returned HTTP 200 with the preview host header. The browser mock harness renders
-the overlay and settings with simulated participants.
+`npx vite --host 0.0.0.0 --port 1420` (and `--port 3000` for the Cloud preview
+panel) → `GET /` and `GET /settings.html` both returned HTTP 200 with the
+preview host header. The browser mock harness renders the overlay and settings
+with simulated participants.
 
 ### 4. Browser preview (UI only)
 
 The overlay and settings documents were rendered in the Cloud browser panel
-against the mock feed to check layout, spacing and the speaking indicator. A
-screenshot is checked in under `docs/screenshots/`. This exercises React and CSS
-only — it is **not** the Tauri application.
+against the mock feed: four simulated participants with exactly one speaking
+ring, one mute badge and one deafen badge, the interactive toolbar, and the
+settings tabs (General, Appearance, Position, Behavior, Discord, About) with
+their live preview. Screenshots are checked in as
+`docs/screenshots/overlay.png` and `docs/screenshots/settings.png`.
+This exercises React and CSS only — it is **not** the Tauri application.
 
 ## Not executed — unverified
 
