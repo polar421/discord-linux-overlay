@@ -1,0 +1,9 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+[remote "origin"]
+	url = https://github.com/polar421/discord-linux-overlay.git
+	tagOpt = --no-tags
+	fetch = +refs/*:refs/*
+	mirror = true

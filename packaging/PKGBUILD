@@ -1,6 +1,6 @@
 # Maintainer: polar421 <https://github.com/polar421>
 pkgname=discord-linux-overlay-git
-pkgver=0.1.0
+pkgver=r8.6b84d31
 pkgrel=1
 pkgdesc="A transparent Discord voice overlay for Linux, built for KDE Plasma Wayland"
 arch=('x86_64')
@@ -10,6 +10,9 @@ depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'hicolor-ic
 makedepends=('rust' 'nodejs' 'npm' 'git' 'pkgconf' 'patchelf')
 provides=('discord-linux-overlay')
 conflicts=('discord-linux-overlay')
+# makepkg's default LTO breaks ring's precompiled assembly objects
+# (undefined ring_core_0_17_14__* symbols at link time).
+options=('!lto')
 source=("$pkgname::git+$url.git")
 sha256sums=('SKIP')
 

@@ -193,6 +193,37 @@ To finish this: start the official Discord client, create a Discord application
 ([docs/DISCORD_SETUP.md](docs/DISCORD_SETUP.md)), enter id + secret in
 *Settings → Discord*, approve the prompt, then join a voice channel.
 
+### 1.10 Arch package
+
+```sh
+cd packaging && makepkg -f --nodeps
+```
+
+Result: **success** — `packaging/discord-linux-overlay-git-r8.6b84d31-1-x86_64.pkg.tar.zst`,
+3.91 MiB compressed, 11.96 MiB installed, 29 files:
+
+```
+usr/bin/discord-linux-overlay
+usr/share/applications/io.github.polar421.DiscordLinuxOverlay.desktop
+usr/share/metainfo/io.github.polar421.DiscordLinuxOverlay.metainfo.xml
+usr/share/icons/hicolor/{32,64,128,256}/apps/io.github.polar421.DiscordLinuxOverlay.png
+usr/share/licenses/discord-linux-overlay-git/{LICENSE,NOTICE}
+```
+
+`pacman -Qip` reports the expected name, AGPL-3.0-or-later licence, x86_64
+architecture and runtime dependencies (webkit2gtk-4.1, gtk3,
+libayatana-appindicator, librsvg, hicolor-icon-theme).
+
+The packaged binary was extracted to a temporary directory and executed:
+`--diagnose` produced the full report and `--status` correctly failed with
+"is Discord Linux Overlay running?" since no instance was up. The package was
+**not installed system-wide** — that would need root and the user's approval.
+
+First packaging attempt failed at link time with undefined `ring_core_*` symbols
+because makepkg's default `lto` option passes `-flto` to the C flags used by
+`ring`'s assembly objects. `packaging/PKGBUILD` now sets `options=('!lto')`; the
+rebuild succeeded (6 m 29 s for the release compile inside makepkg).
+
 ## 2. Headless and CI verification
 
 ### 2.1 Core crate tests — `cargo test -p discord-overlay-core --features http`

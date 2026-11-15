@@ -28,6 +28,25 @@ cd discord-linux-overlay/packaging
 makepkg -si
 ```
 
+Or build without installing, then install the produced package yourself:
+
+```sh
+makepkg -f                       # produces discord-linux-overlay-git-r*.pkg.tar.zst
+sudo pacman -U discord-linux-overlay-git-r*.pkg.tar.zst
+discord-linux-overlay --diagnose
+```
+
+Verified on CachyOS on 2026-11-15: `makepkg -f` produced
+`discord-linux-overlay-git-r8.6b84d31-1-x86_64.pkg.tar.zst` (4.0 MB, 11.96 MiB
+installed, 29 files) and the packaged binary ran `--diagnose` correctly after
+extraction. The package sets `options=('!lto')` because the distribution's LTO
+flags break `ring`'s assembly objects at link time ("undefined symbol
+ring_core_0_17_14__*"). Installation itself was not performed in that session
+(no root); `makepkg -si` is the documented path.
+
+Uninstall with `sudo pacman -Rns discord-linux-overlay-git`; your configuration
+in `~/.config/discord-linux-overlay` is left untouched.
+
 This installs:
 
 ```
@@ -35,7 +54,7 @@ This installs:
 /usr/share/applications/io.github.polar421.DiscordLinuxOverlay.desktop
 /usr/share/metainfo/io.github.polar421.DiscordLinuxOverlay.metainfo.xml
 /usr/share/icons/hicolor/{32,64,128,256}/apps/io.github.polar421.DiscordLinuxOverlay.png
-/usr/share/licenses/discord-linux-overlay/LICENSE
+/usr/share/licenses/discord-linux-overlay-git/{LICENSE,NOTICE}
 ```
 
 ### B. Manual build

@@ -66,3 +66,7 @@ First implementation. The GUI has not been exercised on a real desktop yet; see
 
 Real Discord session, KDE Wayland behaviour, NVIDIA rendering, tray, global
 shortcuts, games, packaging execution. See [TESTING.md](TESTING.md).
+- Built and inspected the Arch package on the target machine
+  (`discord-linux-overlay-git-r8.6b84d31-1-x86_64.pkg.tar.zst`, 29 files, packaged
+  binary runs `--diagnose`). `packaging/PKGBUILD` now sets `options=('!lto')`
+  because the distribution's LTO flags break `ring`'s assembly at link time.

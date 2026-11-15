@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.polar421.DiscordLinuxOverlay</id>
+  <launchable type="desktop-id">io.github.polar421.DiscordLinuxOverlay.desktop</launchable>
+  <name>Discord Linux Overlay</name>
+  <developer id="io.github.polar421">
+    <name>polar421</name>
+  </developer>
+  <summary>A transparent Discord voice overlay for Linux</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <url type="homepage">https://github.com/polar421/discord-linux-overlay</url>
+  <url type="bugtracker">https://github.com/polar421/discord-linux-overlay/issues</url>
+  <url type="vcs-browser">https://github.com/polar421/discord-linux-overlay</url>
+  <description>
+    <p>
+      A movable, transparent Discord voice overlay built for KDE Plasma Wayland and
+      NVIDIA systems. It shows who is in your voice channel, highlights the people
+      who are speaking, and marks who is muted or deafened, on top of games and
+      applications.
+    </p>
+    <ul>
+      <li>Live speaking indicator driven by Discord voice events</li>
+      <li>Participants, avatars, usernames, mute and deafen badges</li>
+      <li>Transparent window, click-through, dragging, resizing and anchoring</li>
+      <li>Configurable opacity, scale, avatar size, spacing, layout and position</li>
+      <li>System tray, join history, and a CLI for KDE global shortcuts on Wayland</li>
+    </ul>
+    <p>
+      Requires the official Discord desktop client and your own free Discord
+      application (client id and secret), because Discord's RPC voice API is
+      application-scoped. No Discord token is ever extracted or scraped.
+    </p>
+  </description>
+  <categories>
+    <category>Utility</category>
+    <category>AudioVideo</category>
+    <category>Network</category>
+  </categories>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The overlay showing speaking, muted and deafened participants</caption>
+      <image>https://raw.githubusercontent.com/polar421/discord-linux-overlay/main/docs/screenshots/overlay.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Settings: appearance with live preview</caption>
+      <image>https://raw.githubusercontent.com/polar421/discord-linux-overlay/main/docs/screenshots/settings.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.1.0" date="2026-11-15" type="development">
+      <description>
+        <p>Initial implementation: Discord IPC client, overlay, settings, tray and CLI.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1" />
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <requires>
+    <id>com.discordapp.Discord</id>
+    <display_length compare="ge">360</display_length>
+  </requires>
+</component>
