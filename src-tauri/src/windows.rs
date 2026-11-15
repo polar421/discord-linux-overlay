@@ -8,7 +8,6 @@ use discord_overlay_core::geometry::{
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
-use crate::platform;
 use crate::state::{lock, AppState};
 
 pub const OVERLAY_LABEL: &str = "overlay";

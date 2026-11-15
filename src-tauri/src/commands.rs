@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use discord_overlay_core::client::Status;
+use discord_overlay_core::client::{Status, TokenStore};
 use discord_overlay_core::config::Config;
 use discord_overlay_core::control::{Request, Response};
 use discord_overlay_core::credentials::{CredentialsView, DiscordCredentials};
