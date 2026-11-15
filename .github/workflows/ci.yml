@@ -55,4 +55,17 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - name: Build binary
-        run: cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol
+        run: |
+          # Surface compiler errors as check annotations: they are public even
+          # when the raw job log requires authentication.
+          set +e
+          cargo build --manifest-path src-tauri/Cargo.toml \
+            --features custom-protocol --message-format=short 2>&1 | tee cargo-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            grep -E "error" cargo-build.log | head -40 | while IFS= read -r line; do
+              echo "::error title=cargo::${line}"
+            done
+          fi
+          exit "$status"
