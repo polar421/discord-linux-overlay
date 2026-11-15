@@ -29,3 +29,8 @@ discord-token.json
 .DS_Store
 .idea/
 .vscode/
+
+# makepkg build directories and produced packages
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.*
