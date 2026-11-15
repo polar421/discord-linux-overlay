@@ -1,0 +1,69 @@
+# Experimental Flatpak manifest for Discord Linux Overlay.
+#
+# Sandbox caveats, read before shipping this:
+#
+#  * Discord's local RPC socket lives on the host at
+#    $XDG_RUNTIME_DIR/discord-ipc-0. A Flatpak can only see it if the host path is
+#    bind-mounted in (below) AND the Discord client runs outside the sandbox.
+#    When Discord is itself a Flatpak, its socket lives under
+#    $XDG_RUNTIME_DIR/app/com.discordapp.Discord/ — this manifest mounts that
+#    directory read-only.
+#  * KWin window rules for "Keep above" are matched by app id, which inside a
+#    sandbox is the Flatpak app id. Use that id in the rule.
+#  * The tray icon needs a StatusNotifierItem host; Plasma provides one, but the
+#    sandbox must be allowed to talk to it.
+# * Native packages (PKGBUILD / AppImage) remain the recommended distribution for
+#   gaming; Flatpak is provided for convenience and is untested.
+#
+# Build (from the repository root):
+#   flatpak-builder --force-clean --user --install build-dir \
+#     packaging/io.github.polar421.DiscordLinuxOverlay.yml
+
+app-id: io.github.polar421.DiscordLinuxOverlay
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+command: discord-linux-overlay
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.Notifications
+  # Discord IPC socket from a native Discord install.
+  - --filesystem=xdg-run/discord-ipc-0
+  # ... or from a Flatpak Discord install.
+  - --filesystem=xdg-run/app/com.discordapp.Discord:ro
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+  env:
+    CARGO_HOME: /run/build/discord-linux-overlay/cargo
+    npm_config_cache: /run/build/discord-linux-overlay/npm-cache
+
+modules:
+  - name: discord-linux-overlay
+    buildsystem: simple
+    build-commands:
+      - npm ci --no-audit --no-fund
+      - npm run build
+      - npm run tauri build -- --no-bundle
+      - install -Dm755 src-tauri/target/release/discord-linux-overlay /app/bin/discord-linux-overlay
+      - install -Dm644 packaging/io.github.polar421.DiscordLinuxOverlay.desktop
+        /app/share/applications/io.github.polar421.DiscordLinuxOverlay.desktop
+      - install -Dm644 packaging/io.github.polar421.DiscordLinuxOverlay.metainfo.xml
+        /app/share/metainfo/io.github.polar421.DiscordLinuxOverlay.metainfo.xml
+      - for size in 32 64 128 256; do
+        install -Dm644 "packaging/icons/${size}x${size}/io.github.polar421.DiscordLinuxOverlay.png"
+        "/app/share/icons/hicolor/${size}x${size}/apps/io.github.polar421.DiscordLinuxOverlay.png";
+        done
+      - install -Dm644 LICENSE /app/share/licenses/io.github.polar421.DiscordLinuxOverlay/LICENSE
+    sources:
+      - type: dir
+        path: ..

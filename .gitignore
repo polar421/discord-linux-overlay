@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# frontend build output
+dist/
+.vite/
+
+# rust build output
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# tauri / release artefacts
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.dmg
+
+# local secrets and user data (never commit these)
+.env
+.env.local
+*.token
+credentials.json
+discord-token.json
+
+# editor / OS noise
+*.swp
+.DS_Store
+.idea/
+.vscode/

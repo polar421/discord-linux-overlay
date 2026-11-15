@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/discord-overlay-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/polar421/discord-linux-overlay"
+authors = ["polar421 and Discord Linux Overlay contributors"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,0 +1,55 @@
+# Maintainer: polar421 <https://github.com/polar421>
+pkgname=discord-linux-overlay-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A transparent Discord voice overlay for Linux, built for KDE Plasma Wayland"
+arch=('x86_64')
+url="https://github.com/polar421/discord-linux-overlay"
+license=('AGPL-3.0-or-later')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'librsvg' 'hicolor-icon-theme')
+makedepends=('rust' 'nodejs' 'npm' 'git' 'pkgconf' 'patchelf')
+provides=('discord-linux-overlay')
+conflicts=('discord-linux-overlay')
+source=("$pkgname::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$pkgname"
+  if git describe --long --tags --abbrev=8 >/dev/null 2>&1; then
+    git describe --long --tags --abbrev=8 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g'
+  else
+    printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  fi
+}
+
+build() {
+  cd "$pkgname"
+
+  # The front end must exist before the Rust build embeds it.
+  npm ci --no-audit --no-fund
+  npm run build
+
+  export CARGO_TARGET_DIR="$srcdir/target"
+  npm run tauri build -- --no-bundle
+}
+
+package() {
+  cd "$pkgname"
+
+  install -Dm755 "$srcdir/target/release/discord-linux-overlay" \
+    "$pkgdir/usr/bin/discord-linux-overlay"
+
+  install -Dm644 packaging/io.github.polar421.DiscordLinuxOverlay.desktop \
+    "$pkgdir/usr/share/applications/io.github.polar421.DiscordLinuxOverlay.desktop"
+
+  install -Dm644 packaging/io.github.polar421.DiscordLinuxOverlay.metainfo.xml \
+    "$pkgdir/usr/share/metainfo/io.github.polar421.DiscordLinuxOverlay.metainfo.xml"
+
+  for size in 32 64 128 256; do
+    install -Dm644 "packaging/icons/${size}x${size}/io.github.polar421.DiscordLinuxOverlay.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/io.github.polar421.DiscordLinuxOverlay.png"
+  done
+
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+}

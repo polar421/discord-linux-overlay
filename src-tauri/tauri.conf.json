@@ -1,0 +1,65 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Discord Linux Overlay",
+  "version": "0.1.0",
+  "identifier": "io.github.polar421.discordlinuxoverlay",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "overlay",
+        "url": "index.html",
+        "title": "Discord Linux Overlay",
+        "width": 320,
+        "height": 440,
+        "minWidth": 64,
+        "minHeight": 64,
+        "transparent": true,
+        "decorations": false,
+        "resizable": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": true
+      },
+      {
+        "label": "settings",
+        "url": "settings.html",
+        "title": "Discord Linux Overlay — Settings",
+        "width": 780,
+        "height": 700,
+        "minWidth": 640,
+        "minHeight": 520,
+        "resizable": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ],
+    "category": "Utility",
+    "shortDescription": "Discord voice overlay for Linux",
+    "longDescription": "A movable, transparent Discord voice overlay for Linux desktops. Shows who is speaking, who is muted or deafened, and who joins or leaves your voice channel, on top of games and applications.",
+    "licenseFile": "../LICENSE",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}

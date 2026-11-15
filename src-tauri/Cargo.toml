@@ -1,0 +1,28 @@
+[package]
+name = "discord-linux-overlay"
+description = "A Discord voice overlay for Linux, built for KDE Plasma Wayland"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/polar421/discord-linux-overlay"
+authors = ["polar421 and Discord Linux Overlay contributors"]
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+discord-overlay-core = { path = "../crates/discord-overlay-core", features = ["http"] }
+env_logger = "0.11"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+
+[features]
+# Used for production builds (assets embedded in the binary instead of served
+# from a dev server).
+custom-protocol = ["tauri/custom-protocol"]
+default = []

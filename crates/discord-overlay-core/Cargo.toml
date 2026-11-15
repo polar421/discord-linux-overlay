@@ -1,0 +1,19 @@
+[package]
+name = "discord-overlay-core"
+description = "Discord RPC/IPC client, overlay state and settings model for Discord Linux Overlay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ureq = { version = "2", default-features = false, features = ["json", "tls"], optional = true }
+
+[features]
+default = []
+http = ["dep:ureq"]
