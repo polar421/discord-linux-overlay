@@ -2,6 +2,7 @@
 
 mod commands;
 mod control;
+mod diagnose;
 mod discord;
 mod platform;
 mod state;
@@ -19,6 +20,16 @@ fn main() {
 
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("{HELP}");
+        return;
+    }
+
+    // Diagnostics are also useful before anything is running, so they are
+    // handled before the usual single-instance hand-off.
+    if args.iter().any(|arg| arg == "--diagnose" || arg == "diagnose") {
+        match control::send_request(Request::Diagnose) {
+            Ok(response) => println!("{}", response.message),
+            Err(_) => println!("{}", diagnose::offline_report()),
+        }
         return;
     }
 

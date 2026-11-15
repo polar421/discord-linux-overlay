@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — first real desktop verification
+
+- Added `--diagnose`: a full report of version, OS, session, GPU/driver, Discord
+  socket discovery, RPC and authentication state, subscription, participants,
+  window state, configuration and active graphics workarounds. It never prints
+  credentials, tokens or secrets, and works with or without a running instance.
+- Added `scripts/local-test.sh`: checks the toolchain, WebKitGTK/GTK/AppIndicator
+  libraries, session, NVIDIA driver, graphics environment variables, Discord IPC
+  sockets and KDE Wayland caveats, then runs the core tests and builds the front
+  end and the application. Failures carry the package that fixes them.
+- Verified on CachyOS + KDE Plasma 6 Wayland + RTX 3060: native Wayland launch,
+  transparent overlay (alpha channel), settings window, hide/show/pin/lock/reset/
+  status/quit over the CLI, settings persistence across restarts, tray
+  registration, and an idle cost of ~0.8 % of one core (debug build).
+- Reproduced `Failed to create GBM buffer: Invalid argument` under XWayland and
+  confirmed both mitigations on the same machine.
+- Fixed double punctuation in `--status`.
+
+
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

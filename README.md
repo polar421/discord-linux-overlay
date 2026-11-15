@@ -17,11 +17,13 @@ session). See [TESTING.md](TESTING.md).*
 
 > **Status: v0.1.0, early development.** The Discord IPC client, participant
 > state machine and settings model are implemented and covered by automated
-> tests (including an end-to-end fake-Discord session), and the full Tauri shell
-> is compiled and linked by CI on Ubuntu 24.04 with WebKitGTK. It has **not been
-> run on a real desktop** — the development container is headless and has no
-> Discord, KDE or GPU — so nothing is verified on a live KDE Wayland session yet.
-> Read [TESTING.md](TESTING.md) for exactly what was and was not tested.
+> tests (including an end-to-end fake-Discord session). The app has been **built
+> and run on the target machine** (CachyOS, KDE Plasma 6 Wayland, RTX 3060): the
+> overlay and settings windows open, the overlay surface is genuinely transparent,
+> the CLI controls work, settings survive a restart and the tray item registers.
+> **Discord itself is not yet verified**: Discord was not running and no Discord
+> application credentials were configured, so no live voice session has been
+> tested. Read [TESTING.md](TESTING.md) for exactly what was and was not tested.
 
 ## Features
 
@@ -103,6 +105,31 @@ Installation details, removal and Flatpak/AppImage notes:
 | Reset position | Toolbar refresh icon, tray, settings, or `--reset-position` |
 | Settings | Toolbar gear icon or tray |
 | Show/hide | Tray, shortcut, or `--toggle` |
+| Diagnostics | `discord-linux-overlay --diagnose` (works even with no instance running) |
+
+### Verified on real hardware
+
+Native Wayland (KWin, RTX 3060), captured from the running application — the
+checkerboard-free grey field is the transparent surface, stored with alpha:
+
+![Real overlay window on KDE Wayland](docs/screenshots/real-wayland-overlay.png)
+
+XWayland with the DMA-BUF renderer disabled, after the unmodified run reproduced
+`Failed to create GBM buffer: Invalid argument` on this GPU:
+
+![Real overlay under XWayland](docs/screenshots/real-xwayland-overlay.png)
+
+## Verify the build on your machine
+
+```sh
+./scripts/local-test.sh      # dependencies, libraries, session, GPU, Discord socket, build
+./src-tauri/target/debug/discord-linux-overlay --diagnose
+```
+
+`--diagnose` reports the version, OS, session, GPU/driver, Discord socket
+discovery, RPC and authentication state, subscription, participants, window
+state, configuration and the graphics workarounds in effect. It never prints
+credentials or tokens.
 
 ## Linux and Wayland limitations (read this)
 
@@ -112,8 +139,9 @@ themselves. On KDE Plasma Wayland:
 - **Always on top** is not available to ordinary toplevel windows. Use a **KWin
   window rule** (*Keep above other windows*) — step-by-step instructions in
   [LINUX.md §3](LINUX.md#3-kwin-window-rule-for-always-on-top-recommended-on-wayland).
-- **Absolute anchoring** is ignored by the compositor; drag the overlay once and
-  KWin remembers it.
+- **Absolute anchoring** is ignored by the compositor; the first window is
+  placed where KWin decides (measured: `0,0`). Drag the overlay once and KWin
+  remembers it.
 - **Global hotkeys** need a KDE *Custom Shortcut* that calls the CLI.
 - **Exclusive fullscreen** games cannot be overlaid at all without injecting into
   the game process, which this project intentionally does not do. Borderless

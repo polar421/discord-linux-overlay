@@ -1,29 +1,201 @@
 # Testing
 
-Honest record of what was executed and what was not.
+Honest record of what was executed, on which machine, and what remains
+unverified. Nothing here is marked working because a button exists.
 
-## Environment used for this work
+## Environments
 
-| Item | Value |
-| --- | --- |
-| Machine | headless cloud container (no display server, no GPU) |
-| OS | Ubuntu 24.04.5 LTS, 2 vCPU |
-| Rust | 1.100.0 (rustup, installed in-container) |
-| Node / npm | 26.13.0 / 11.20.0 |
-| Discord client | not available |
-| KDE Plasma / Wayland | not available |
-| NVIDIA GPU | not available |
-| Display / X11 / Wayland socket | none |
+| | Environment | Status |
+| --- | --- | --- |
+| **A** | CachyOS, KDE Plasma 6 **Wayland**, NVIDIA RTX 3060 (driver 620.70.06), 6-core CPU, WebKitGTK 2.54.2, GTK 3.24.52 | **real desktop tests in §1** |
+| **B** | GitHub Actions, Ubuntu 24.04, WebKitGTK 4.1 | compile/test only (§2.4) |
+| **C** | Headless development container (no display, no GPU, no Discord) | browser mock only (§2.5) |
 
-Consequence: everything below is **automated/headless** verification. The
-application could not be compiled locally because GTK3/WebKitGTK development
-headers need root to install, and it cannot be run here because there is no
-desktop. The Tauri shell **is** compiled by CI (`.github/workflows/ci.yml`) on a
-GitHub-hosted Ubuntu 24.04 runner with those packages — see section 5.
+## 1. Real desktop verification — CachyOS, 2026-11-15
 
-## Executed and passing
+Built and run from this worktree on the user's real session. Nothing was
+installed, no system configuration was changed, and the installed Overlayed
+Flatpak was not touched.
 
-### 1. Core crate tests — `cargo test -p discord-overlay-core --features http`
+### 1.1 Build
+
+```sh
+npm ci && npm run build
+cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol
+```
+
+Result: **success**, `src-tauri/target/debug/discord-linux-overlay`, 276 MB
+(debug, unstripped), 1 m 52 s from a cold `cargo` cache with all 484 crates.
+No compiler warnings.
+
+Release build: `cargo build --release --features custom-protocol` → **18 MB**
+binary in 3 m 14 s. It launches, reports `visible: yes`, `size: 320x440`, and
+quits cleanly through the control socket.
+
+### 1.2 Launch — native Wayland
+
+```sh
+env -u GDK_BACKEND ./src-tauri/target/debug/discord-linux-overlay
+```
+
+The test shell exports `GDK_BACKEND=x11`, so it was unset to exercise native
+Wayland; Plasma itself does not set it. Log:
+
+```
+INFO discord_linux_overlay::platform] NVIDIA + Wayland detected: setting __NV_DISABLE_EXPLICIT_SYNC=1
+Gtk-WARNING: gtk_window_set_titlebar() called on a realized window
+libayatana-appindicator-WARNING: libayatana-appindicator is deprecated...
+```
+
+* No `Failed to create GBM buffer`, no `Error 71`, no crash.
+* `--diagnose` reported `session: wayland`, `compositor: KWin (Wayland)`,
+  `toolkit backend: Wayland (native)`, `__NV_DISABLE_EXPLICIT_SYNC=1`.
+* Tray initialised (the AppIndicator warning comes from a successful
+  registration).
+
+### 1.3 Windows, rendering and transparency
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| Settings window exists but starts hidden | `--diagnose`: `settings window: created, hidden` | pass |
+| Settings window opens | `--settings` → `settings window: open` | pass |
+| Overlay window exists and is mapped | `--diagnose`: `visible: yes`, `size: 320x440` | pass |
+| Transparency | KWin window capture (`spectacle -a`) → PNG `alpha=Blend, opaque=False` | **pass** |
+| UI actually paints | same capture contains text, icons and the status row | **pass** |
+
+Window-scoped captures (only this application's windows, not the desktop):
+
+![Overlay on native Wayland](docs/screenshots/real-wayland-overlay.png)
+
+![Settings on XWayland with software rendering](docs/screenshots/real-xwayland-settings.png)
+
+Captured with `spectacle -b -n -a -o …` after activating the window through a
+temporary KWin script. The grey/black field is the transparent surface as stored
+in the PNG (it has a real alpha channel); on the live desktop it shows the
+content behind it.
+
+**Wayland positioning limitation, observed:** KWin ignored the requested
+bottom-right anchor and placed the initial window at `0,0`. This is the
+documented Wayland restriction, now measured rather than assumed. After dragging
+the overlay once, KWin remembers the position.
+
+### 1.4 Controls (CLI → running instance, Wayland)
+
+| Command | Reply | Observed effect |
+| --- | --- | --- |
+| `--status` | `Discord: setup required … Channel: not in a voice channel. Participants: 0.` | live state returned |
+| `--toggle` (hide) | `overlay hidden` | `visible: no` |
+| `--toggle` (show) | `overlay shown` | `visible: yes` |
+| `--pin off` | `click-through disabled` | `configured click-through: false` |
+| `--toggle-lock` | `position locked` | `locked: true` |
+| `--reset-position` | `overlay position reset` | anchored/bottom-right restored in config |
+| `--settings` | `settings opened` | `settings window: open` |
+| `--quit` | `quitting` | process exited |
+| `--diagnose` | full report | see §1.2 and §1.9 |
+
+The control socket is `$XDG_RUNTIME_DIR/discord-linux-overlay/control.sock`; the
+CLI works on Wayland where global hotkeys do not.
+
+### 1.5 Persistence across restart
+
+Set `clickThrough=false` and `lockPosition=true` through the CLI, quit, relaunch:
+
+* `~/.config/discord-linux-overlay/config.json` exists with mode `0600`.
+* After restart `--diagnose` reports `configured click-through: false,
+  always-on-top: true, locked: true`, and the window honours them.
+
+**pass** — configuration survives restarts.
+
+### 1.6 System tray
+
+`org.kde.StatusNotifierWatcher.RegisteredStatusNotifierItems` contained:
+
+```
+:1.1779 /org/ayatana/NotificationItem/tray_icon_tray_app_main
+  title = discord-linux-overlay
+  id    = tray-icon tray app main
+```
+
+**pass** — a StatusNotifierItem is registered with Plasma. The menu items
+themselves (show/hide, click-through, settings, reset, quit) are wired to the
+same `apply_request` dispatcher that the CLI exercised in §1.4, but clicking
+them was **not** automated and remains unverified by hand.
+
+### 1.7 XWayland and the NVIDIA GBM failure — reproduced
+
+```sh
+GDK_BACKEND=x11 ./src-tauri/target/debug/discord-linux-overlay
+```
+
+The first run reproduces the exact failure reported for Overlayed on this
+machine:
+
+```
+Failed to create GBM buffer of size 320x440: Invalid argument
+Failed to create GBM buffer of size 320x440: Invalid argument
+```
+
+The window existed (320×440, ARGB depth 32, at `3176,616` — anchoring **does**
+work under XWayland, on the secondary monitor), but a window capture contained
+**one colour**: the web view had painted nothing.
+
+The two documented mitigations were then tested on the same machine:
+
+| Mitigation | Log | Capture |
+| --- | --- | --- |
+| `WEBKIT_DISABLE_DMABUF_RENDERER=1` | no GBM error | 473 colours, UI rendered |
+| config `general.disableDmabufRenderer=true` (no env var) | `disable_dmabuf_renderer enabled: setting WEBKIT_DISABLE_DMABUF_RENDERER=1` | 441 colours, UI rendered |
+
+![Overlay under XWayland with the DMA-BUF renderer disabled](docs/screenshots/real-xwayland-overlay.png)
+
+**Conclusion:** the NVIDIA/WebKitGTK DMA-BUF defect is real on this hardware and
+affects this application too, not only Overlayed. On XWayland, the in-app toggle
+fixes it (software rendering). On native Wayland the automatic
+`__NV_DISABLE_EXPLICIT_SYNC=1` workaround was sufficient; the DMA-BUF renderer
+stayed enabled.
+
+### 1.8 Performance (idle, not connected)
+
+Measured from `/proc/<pid>/stat` over 10 s with the overlay visible, no voice
+session, settings window never opened:
+
+| Metric | Debug | Release |
+| --- | --- | --- |
+| CPU (one core) | 8 ticks / 10 s = **0.8 %** | 4 ticks / 10 s = **0.4 %** |
+| Main process RSS | ~240 MB | **212 MB** |
+| Threads | 22 | — |
+| Binary size | 276 MB | **18 MB** |
+
+Process tree (release): main 212 MB, `WebKitNetworkProcess` 65 MB,
+two `WebKitWebProcess` 259 MB + 248 MB → **~785 MB RSS in total**. Summing RSS
+overcounts pages shared between the processes, so the resident truth is lower,
+but this is the measured upper bound. Both web views (overlay and the hidden
+settings window) are created at startup, which is where the two WebKit processes
+come from; lazily creating the settings view is the obvious future optimisation.
+
+GPU usage is **not attributable**: `nvidia-smi` only reports whole-GPU load
+(other applications were using the GPU during the measurement).
+
+CPU figures are for an idle, unconnected overlay; speaking indicators in an
+active voice channel will repaint more often (not measured).
+
+### 1.9 Discord — not testable in this session
+
+* Discord was **not running**. `/run/user/1000/discord-ipc-0` exists but refuses
+  connections (stale socket), which `--diagnose` reports correctly.
+* No Discord application credentials are configured, so the app correctly
+  reports `setup required` and does not attempt authorization.
+* Consequently **no RPC handshake, OAuth approval, voice subscription,
+  participants, speaking indicators, mute/deafen badges or channel switching
+  were verified against real Discord.**
+
+To finish this: start the official Discord client, create a Discord application
+([docs/DISCORD_SETUP.md](docs/DISCORD_SETUP.md)), enter id + secret in
+*Settings → Discord*, approve the prompt, then join a voice channel.
+
+## 2. Headless and CI verification
+
+### 2.1 Core crate tests — `cargo test -p discord-overlay-core --features http`
 
 ```
 62 unit tests + 5 integration tests, all passing
@@ -39,155 +211,86 @@ GitHub-hosted Ubuntu 24.04 runner with those packages — see section 5.
 | `credentials::tests` | configured detection, secret never in the public view, masked id, `0600` round-trip, idempotent removal |
 | `geometry::tests` | all nine anchors at 2× scale, fractional DPI, clamping oversized windows/offsets, invalid input rejection, off-screen detection and re-clamping, serialization |
 | `token::tests` | form encoding, error-body reduction, truncation |
-| `control::tests` | CLI switch parsing, pin values, request serialization, socket path |
+| `control::tests` | CLI switch parsing (including `--diagnose`), pin values, request serialization, socket path |
 | `client::tests` | backoff capping, status serialization, private token file round-trip |
-| `tests/discord_session.rs` | **end-to-end over a real Unix socket against a fake Discord server**: handshake → `READY` → `AUTHORIZE` → local code exchange → `AUTHENTICATE` → subscribe → channel snapshot → `SPEAKING_START`/`STOP` → `VOICE_STATE_CREATE`/`DELETE`, plus cached-token path, reconnect after the socket drops, `WaitingForDiscord` when absent, and `PING`→`PONG` |
+| `tests/discord_session.rs` | end-to-end over a real Unix socket against a fake Discord server: handshake → `READY` → `AUTHORIZE` → local code exchange → `AUTHENTICATE` → subscribe → channel snapshot → `SPEAKING_START`/`STOP` → `VOICE_STATE_CREATE`/`DELETE`, plus cached-token path, reconnect after the socket drops, `WaitingForDiscord` when absent, `PING`→`PONG` |
 
-### 2. Front end — `npx tsc --noEmit` and `npx vite build`
+### 2.2 Front end
 
-```
-tsc: exit 0 (strict, noUnusedLocals, verbatimModuleSyntax)
-vite: 47 modules transformed, dist/index.html + dist/settings.html built
-```
-
-### 3. Dev server
-
-`npx vite --host 0.0.0.0 --port 1420` (and `--port 3000` for the Cloud preview
-panel) → `GET /` and `GET /settings.html` both returned HTTP 200 with the
-preview host header. The browser mock harness renders the overlay and settings
-with simulated participants.
-
-### 4. Tauri shell compilation — GitHub Actions `.github/workflows/ci.yml`
-
-```
-run for commit 22c0714 (main): Core crate tests ✓  Front end typecheck and build ✓  Tauri shell build (Linux) ✓
+```sh
+npx tsc --noEmit   # exit 0, strict, noUnusedLocals, verbatimModuleSyntax
+npm run build      # 47 modules, dist/index.html + dist/settings.html
 ```
 
-The `Tauri shell build (Linux)` job installs `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
-`libayatana-appindicator3-dev`, `librsvg2-dev` and `patchelf`, builds the front end,
-then runs `cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol`.
-It succeeds, and produces the `discord-linux-overlay` binary. That proves the whole
-GUI shell — Tauri configuration, capabilities, tray, window management, commands,
-control socket, Discord client thread — **compiles and links** on Linux.
-It is a compile check only: no window is opened and nothing is exercised at runtime.
+### 2.3 Dev server
 
-### 5. Browser preview (UI only)
+`npx vite --host 0.0.0.0 --port 1420` → `GET /` and `GET /settings.html` both
+HTTP 200. The browser mock harness renders the overlay and settings with
+simulated participants.
+
+### 2.4 CI (compile only)
+
+CI run for commit `22c0714` on `main`: core tests ✓, front-end typecheck/build ✓,
+`cargo build --features custom-protocol` with WebKitGTK on Ubuntu 24.04 ✓.
+This proves the shell compiles and links; it does not exercise the app.
+
+### 2.5 Browser preview (UI only)
 
 The overlay and settings documents were rendered in the Cloud browser panel
-against the mock feed: four simulated participants with exactly one speaking
-ring, one mute badge and one deafen badge, the interactive toolbar, and the
-settings tabs (General, Appearance, Position, Behavior, Discord, About) with
-their live preview. Screenshots are checked in as
-`docs/screenshots/overlay.png` and `docs/screenshots/settings.png`.
-This exercises React and CSS only — it is **not** the Tauri application.
+against the mock feed: four simulated participants with one speaking ring, one
+mute badge, one deafen badge, the interactive toolbar and all settings tabs.
+Screenshots: `docs/screenshots/overlay.png`, `docs/screenshots/settings.png`.
+This exercises React and CSS only — **not** the Tauri application.
 
-## Not executed — unverified
+## 3. Not executed — still unverified
 
-Every item in this list is implemented in code but has **not** been verified, and
-must not be described as working:
-
-| # | Item | Why not |
+| # | Item | Why |
 | --- | --- | --- |
-| 1 | `cargo build` of `src-tauri` (Tauri shell) | no GTK/WebKit dev headers, no root in the container; CI covers it |
-| 2 | Launching the application | no display server |
-| 3 | Connecting to a real Discord client | no Discord, no account |
-| 4 | Joining a voice channel, participants appearing | requires 2+ Discord accounts |
-| 5 | Speaking indicators with real audio | requires a real voice session |
-| 6 | Mute/deafen indicators from a real client | same |
-| 7 | Avatars loading through the Tauri CSP | needs the real web view |
-| 8 | Another person joining/leaving, channel switching | same as 4 |
-| 9 | Moving and resizing the overlay | needs a compositor |
-| 10 | Click-through on/off | needs a compositor |
-| 11 | Always-on-top / KWin rule behaviour | needs KDE Plasma 6 Wayland |
-| 12 | Multi-monitor anchoring and DPI | needs two monitors |
-| 13 | Settings persistence across restarts | needs the app to run |
-| 14 | Tray icon and menu | needs a tray host |
-| 15 | Global shortcuts (X11) and CLI shortcuts (Wayland) | needs a desktop session |
-| 16 | NVIDIA `Failed to create GBM buffer` mitigation | no NVIDIA GPU |
-| 17 | Steam / Proton / Vulkan / OpenGL / fullscreen games | no games, no GPU |
-| 18 | CPU/GPU/RAM/startup measurements | no way to run the GUI |
-| 19 | PKGBUILD / Flatpak manifest execution | no root, no `base-devel` |
-| 20 | AppImage/deb bundling | `tauri build` requires GTK/WebKit |
+| 1 | Real Discord RPC handshake, OAuth approval, session | Discord not running; no app credentials configured |
+| 2 | Real voice participants, speaking indicators, mute/deafen badges, join/leave, channel switching | requires a real voice session and a second account |
+| 3 | Discord avatars through the Tauri CSP | no real session (the placeholder UI rendered) |
+| 4 | Mouse dragging and resizing the overlay | not automated; positioning restrictions observed instead |
+| 5 | Actual click-through (click lands on the window below) | not automated |
+| 6 | KWin *Keep above* rule over a game | no KWin rule was added (requires changing the user's configuration) |
+| 7 | Native Wayland multi-monitor placement | KWin ignores positioning by design; only `0,0` observed |
+| 8 | Tray menu actions by mouse | SNI registration verified; menu clicks not automated |
+| 9 | Global shortcuts (X11 path) | session is Wayland |
+| 10 | Steam / Proton / Vulkan / OpenGL / borderless / exclusive fullscreen | no game launched |
+| 11 | GPU usage attributable to the app | `nvidia-smi` only reports whole-GPU load |
+| 12 | Release-build idle CPU/RSS | debug measured; release pending |
+| 13 | Flatpak manifest, AppImage bundling | not attempted |
+| 14 | Autostart entry, hotkey registration UI | code paths exist, not exercised |
 
-## How to verify on the target machine (CachyOS, KDE Plasma 6 Wayland, RTX 3060)
-
-Run these in order and record results in this file.
-
-### A. Build and start
+## 4. How to finish the checklist on this machine
 
 ```sh
-npm ci && npm run build
-npm run tauri build -- --no-bundle
-./src-tauri/target/release/discord-linux-overlay 2>&1 | tee /tmp/dlo.log
+start Discord (official client)
+./src-tauri/target/debug/discord-linux-overlay
+./src-tauri/target/debug/discord-linux-overlay --diagnose     # expect "connected as …"
 ```
 
-Expected: the overlay appears bottom-right, the settings window opens, no
-`Failed to create GBM buffer` in the log. If the window is blank, enable
-*Disable WebKit DMA-BUF renderer* and restart.
-
-### B. Discord integration
-
-1. Settings → Discord → paste credentials → Save.
-2. Approve the prompt in Discord.
-3. Join a voice channel.
-
-Expected: your name appears within ~1 s; the status shows "Connected as …".
-With a second account, verify: speaking ring on the active speaker, mute icon on
-a self-muted user, deafen icon on a deafened user, join/leave rows appear and
-disappear, switching channels replaces the list.
-
-### C. Window behaviour
-
-| Test | Expected |
-| --- | --- |
-| Turn click-through off, drag by the handle | overlay moves, position persists after restart |
-| Drag the window edge (manual mode) | resizes, size persists |
-| Turn click-through on, click over the overlay | click reaches the window underneath |
-| Settings → Position → Apply with each anchor | overlay snaps to that corner (X11) or is placed by KWin (Wayland) |
-| Reset position | returns to bottom-right, primary monitor |
-| Second monitor: choose it as the placement monitor | overlay moves there (X11); on Wayland drag it and it stays |
-| Tray icon | menu opens; toggle/pin/reset/settings/quit work |
-| KWin rule "Keep above" | overlay stays over a borderless game |
-
-### D. Games
-
-Test with a Vulkan native game (e.g. `vkcube`), an OpenGL game, a Steam Proton
-game in **borderless windowed** mode, then in **exclusive fullscreen**.
-
-Expected: borderless works with the KWin rule, windowed works, exclusive
-fullscreen does not (documented limitation). Check that mouse/keyboard/gamepad
-input is unaffected while click-through is on, and that frame pacing is unchanged
-(no continuous repaint).
-
-### E. Performance
-
-```sh
-# idle CPU while connected and alone in a channel
-pidstat -p $(pgrep -f target/release/discord-linux-overlay) 1 30
-# and GPU
-nvidia-smi dmon -s u -c 30
-```
-
-Targets: well under 1 % CPU while idle, no continuous GPU work. Record actual
-numbers here.
-
-### F. Fill in
+Then Settings → Discord → paste client id + secret → Save, approve the prompt in
+Discord, join a channel.
 
 | Test | Result |
 | --- | --- |
-| Build | ☐ |
-| Launch (Wayland) | ☐ |
-| Launch (XWayland `GDK_BACKEND=x11`) | ☐ |
+| Build (debug) | ✅ 2026-11-15 |
+| Launch (Wayland) | ✅ 2026-11-15 |
+| Launch (XWayland `GDK_BACKEND=x11`) | ✅ (blank without mitigation, rendered with it) |
+| Transparency | ✅ alpha channel verified |
+| Settings window opens | ✅ |
+| Overlay hide/show/pin/lock/reset/status/quit via CLI | ✅ |
+| Settings persistence | ✅ |
+| Tray registration | ✅ (menu clicks untested) |
 | Discord auth | ☐ |
 | Participants + speaking | ☐ |
 | Mute/deafen | ☐ |
 | Join/leave/channel switch | ☐ |
-| Drag/resize/persist | ☐ |
+| Drag/resize | ☐ |
 | Click-through | ☐ |
 | Always-on-top (KWin rule) | ☐ |
-| Multi-monitor | ☐ |
-| Tray | ☐ |
-| Shortcuts / CLI | ☐ |
+| Multi-monitor (native Wayland) | ☐ (XWayland anchoring verified) |
+| Shortcuts / CLI | ✅ CLI; hotkeys ☐ |
 | Borderless game | ☐ |
 | Exclusive fullscreen | ☐ (expected: no overlay) |
-| Idle CPU / GPU | ☐ |
+| Idle CPU / GPU | ✅ CPU 0.8 % (debug); GPU ☐ |

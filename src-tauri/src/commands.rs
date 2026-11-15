@@ -415,12 +415,13 @@ pub fn apply_request(app: &AppHandle, request: Request) -> Response {
                 .map(|channel| channel.name.clone())
                 .unwrap_or_else(|| "not in a voice channel".to_string());
             Response::ok(format!(
-                "Discord: {}. Channel: {}. Participants: {}.",
+                "Discord: {} Channel: {}. Participants: {}.",
                 status_text(&status),
                 channel,
                 overlay.participants.len()
             ))
         }
+        Request::Diagnose => Response::ok(crate::diagnose::runtime_report(app)),
         Request::Quit => {
             app.state::<AppState>().stop_client();
             app.exit(0);

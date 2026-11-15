@@ -25,6 +25,8 @@ pub enum Request {
     ResetPosition,
     ToggleLock,
     Status,
+    /// Full diagnostic report, including runtime state of the running instance.
+    Diagnose,
     Quit,
 }
 
@@ -65,6 +67,7 @@ Usage:
   discord-linux-overlay --reset-position
   discord-linux-overlay --toggle-lock
   discord-linux-overlay --status     Print the connection status of a running instance
+  discord-linux-overlay --diagnose   Print a diagnostic report (works without a running instance)
   discord-linux-overlay --quit       Quit the running instance
   discord-linux-overlay --help       Show this help
 
@@ -84,6 +87,7 @@ pub fn parse_args(args: &[String]) -> Option<Request> {
         "--reset-position" | "reset-position" => Some(Request::ResetPosition),
         "--toggle-lock" | "toggle-lock" => Some(Request::ToggleLock),
         "--status" | "status" => Some(Request::Status),
+        "--diagnose" | "diagnose" => Some(Request::Diagnose),
         "--quit" | "quit" => Some(Request::Quit),
         "--pin" | "pin" => {
             let value = iterator.next()?;
@@ -160,6 +164,10 @@ mod tests {
             Some(Request::ToggleLock)
         );
         assert_eq!(parse_args(&args(&["--status"])), Some(Request::Status));
+        assert_eq!(
+            parse_args(&args(&["--diagnose"])),
+            Some(Request::Diagnose)
+        );
         assert_eq!(parse_args(&args(&["--quit"])), Some(Request::Quit));
         assert_eq!(parse_args(&args(&["--help"])), None);
         assert_eq!(parse_args(&[]), None);

@@ -70,6 +70,25 @@ npm run icons
 
 ## Checks
 
+### On a real desktop (recommended)
+
+```sh
+./scripts/local-test.sh            # checks, then a debug build
+./scripts/local-test.sh --release  # checks, then a release build
+./scripts/local-test.sh --skip-build
+```
+
+It verifies the toolchain, `webkit2gtk-4.1`, GTK3, AppIndicator, librsvg, the
+session type, the NVIDIA driver, the relevant graphics environment variables,
+the Discord IPC sockets and the KDE Wayland caveats, then runs the core tests and
+builds the front end and the application. Missing packages are reported together
+with the command that installs them. It never installs anything itself.
+
+After launching, `discord-linux-overlay --diagnose` prints the live report
+(connection, authentication, subscription, window state, configuration).
+
+### CI-style checks
+
 ```sh
 ./scripts/check.sh
 ```
