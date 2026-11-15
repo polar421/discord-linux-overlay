@@ -64,8 +64,14 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            grep -E "error" cargo-build.log | head -40 | while IFS= read -r line; do
-              echo "::error title=cargo::${line}"
+            first_error=$(grep -m1 -E "^error|error\[E[0-9]+\]" cargo-build.log || true)
+            if [ -n "$first_error" ]; then
+              echo "::error title=cargo::${first_error}"
+            fi
+            tail -n 9 cargo-build.log | while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                echo "::error title=cargo-tail::${line}"
+              fi
             done
           fi
           exit "$status"
