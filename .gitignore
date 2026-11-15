@@ -34,3 +34,6 @@ discord-token.json
 packaging/src/
 packaging/pkg/
 packaging/*.pkg.tar.*
+
+# makepkg git source cache
+packaging/discord-linux-overlay-git/
