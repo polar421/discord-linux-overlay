@@ -20,8 +20,11 @@ pub enum Request {
     Hide,
     ToggleVisibility,
     ToggleClickThrough,
-    Pin { value: bool },
+    Pin {
+        value: bool,
+    },
     OpenSettings,
+    CloseSettings,
     ResetPosition,
     ToggleLock,
     Status,
@@ -64,6 +67,7 @@ Usage:
   discord-linux-overlay --pin on|off Enable or disable click-through mode
   discord-linux-overlay --toggle-click-through
   discord-linux-overlay --settings   Open the settings window
+  discord-linux-overlay --close-settings  Close (and release) the settings window
   discord-linux-overlay --reset-position
   discord-linux-overlay --toggle-lock
   discord-linux-overlay --status     Print the connection status of a running instance
@@ -84,6 +88,7 @@ pub fn parse_args(args: &[String]) -> Option<Request> {
         "--toggle" | "--toggle-visibility" | "toggle" => Some(Request::ToggleVisibility),
         "--toggle-click-through" | "toggle-click-through" => Some(Request::ToggleClickThrough),
         "--settings" | "settings" => Some(Request::OpenSettings),
+        "--close-settings" | "close-settings" => Some(Request::CloseSettings),
         "--reset-position" | "reset-position" => Some(Request::ResetPosition),
         "--toggle-lock" | "toggle-lock" => Some(Request::ToggleLock),
         "--status" | "status" => Some(Request::Status),
@@ -156,6 +161,10 @@ mod tests {
             Some(Request::OpenSettings)
         );
         assert_eq!(
+            parse_args(&args(&["--close-settings"])),
+            Some(Request::CloseSettings)
+        );
+        assert_eq!(
             parse_args(&args(&["--reset-position"])),
             Some(Request::ResetPosition)
         );
@@ -164,10 +173,7 @@ mod tests {
             Some(Request::ToggleLock)
         );
         assert_eq!(parse_args(&args(&["--status"])), Some(Request::Status));
-        assert_eq!(
-            parse_args(&args(&["--diagnose"])),
-            Some(Request::Diagnose)
-        );
+        assert_eq!(parse_args(&args(&["--diagnose"])), Some(Request::Diagnose));
         assert_eq!(parse_args(&args(&["--quit"])), Some(Request::Quit));
         assert_eq!(parse_args(&args(&["--help"])), None);
         assert_eq!(parse_args(&[]), None);

@@ -10,35 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "label": "overlay",
-        "url": "index.html",
-        "title": "Discord Linux Overlay",
-        "width": 320,
-        "height": 440,
-        "minWidth": 64,
-        "minHeight": 64,
-        "transparent": true,
-        "decorations": false,
-        "resizable": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": true
-      },
-      {
-        "label": "settings",
-        "url": "settings.html",
-        "title": "Discord Linux Overlay — Settings",
-        "width": 780,
-        "height": 700,
-        "minWidth": 640,
-        "minHeight": 520,
-        "resizable": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420"
     }

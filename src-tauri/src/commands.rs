@@ -54,7 +54,7 @@ pub fn update_config(
         .map_err(|error| error.to_string())?;
 
     *lock(&state.config) = config.clone();
-    windows::apply_behavior(&app, &config)?;
+    windows::apply_behavior(&app, &config);
 
     if patch.get("placement").is_some() {
         windows::apply_placement(&app, &config)?;
@@ -175,10 +175,7 @@ fn set_click_through_inner(app: &AppHandle, value: bool) -> Result<bool, String>
         .map_err(|error| error.to_string())?;
 
     *lock(&state.config) = config.clone();
-    windows::apply_behavior(app, &config)?;
-    if let Some(window) = windows::overlay_window(app) {
-        let _ = window.set_skip_taskbar(value);
-    }
+    windows::apply_behavior(app, &config);
     let _ = app.emit("config:changed", &config);
     Ok(value)
 }
@@ -203,7 +200,7 @@ pub fn set_always_on_top(app: AppHandle, value: bool) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
     *lock(&state.config) = config.clone();
-    windows::apply_behavior(&app, &config)?;
+    windows::apply_behavior(&app, &config);
     let _ = app.emit("config:changed", &config);
     Ok(())
 }
@@ -231,7 +228,7 @@ pub fn set_locked(app: AppHandle, state: State<'_, AppState>, value: bool) -> Re
         .patch(&json!({ "behavior": { "lockPosition": value } }))
         .map_err(|error| error.to_string())?;
     *lock(&state.config) = config.clone();
-    windows::apply_behavior(&app, &config)?;
+    windows::apply_behavior(&app, &config);
     let _ = app.emit("config:changed", &config);
     Ok(())
 }
@@ -267,26 +264,23 @@ pub fn apply_placement_now(app: AppHandle, state: State<'_, AppState>) -> Result
 
 #[tauri::command]
 pub fn get_monitors(app: AppHandle) -> Result<MonitorsResponse, String> {
-    let window =
-        windows::overlay_window(&app).ok_or_else(|| "overlay window is missing".to_string())?;
     Ok(MonitorsResponse {
-        monitors: windows::monitor_list(&window)?,
+        monitors: windows::monitor_list(&app)?,
         positioning_supported: !platform::is_wayland(),
     })
 }
 
 #[tauri::command]
-pub fn open_settings(app: AppHandle) {
-    if let Some(window) = windows::settings_window(&app) {
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+pub fn open_settings(app: AppHandle) -> Result<(), String> {
+    windows::open_settings_window(&app).map(|_| ())
 }
 
 #[tauri::command]
 pub fn close_settings(app: AppHandle) {
+    // Close (not hide) so the settings webview and its WebKit process can be
+    // released while the overlay keeps running.
     if let Some(window) = windows::settings_window(&app) {
-        let _ = window.hide();
+        let _ = window.close();
     }
 }
 
@@ -318,6 +312,7 @@ pub fn open_config_dir(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    crate::QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
     app.state::<AppState>().stop_client();
     app.exit(0);
 }
@@ -355,9 +350,13 @@ pub fn apply_request(app: &AppHandle, request: Request) -> Response {
             }),
             Err(error) => Response::error(error),
         },
-        Request::OpenSettings => {
-            open_settings(app.clone());
-            Response::ok("settings opened")
+        Request::OpenSettings => match open_settings(app.clone()) {
+            Ok(()) => Response::ok("settings opened"),
+            Err(error) => Response::error(format!("could not open settings: {error}")),
+        },
+        Request::CloseSettings => {
+            close_settings(app.clone());
+            Response::ok("settings closed")
         }
         Request::ResetPosition => {
             let state = app.state::<AppState>();
@@ -423,6 +422,7 @@ pub fn apply_request(app: &AppHandle, request: Request) -> Response {
         }
         Request::Diagnose => Response::ok(crate::diagnose::runtime_report(app)),
         Request::Quit => {
+            crate::QUITTING.store(true, std::sync::atomic::Ordering::SeqCst);
             app.state::<AppState>().stop_client();
             app.exit(0);
             Response::ok("quitting")

@@ -1,17 +1,22 @@
-//! Overlay window management: placement, click-through, always-on-top and
-//! bounds persistence.
+//! Window management.
+//!
+//! The overlay is a native GTK window (see `native_overlay.rs`). The settings
+//! panel is the only WebKit web view, and it is created on demand and destroyed
+//! on close so idle memory stays low.
 
-use discord_overlay_core::config::{Config, PlacementMode};
-use discord_overlay_core::geometry::{
-    clamp_into_monitor, compute_placement, is_offscreen, MonitorRect, WindowPlacement,
-};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use crate::state::{lock, AppState};
+use discord_overlay_core::config::Config;
 
-pub const OVERLAY_LABEL: &str = "overlay";
 pub const SETTINGS_LABEL: &str = "settings";
+
+/// Incremented every time settings is opened. A cleanup task only terminates
+/// WebKit children if no newer settings window was opened in the meantime.
+static SETTINGS_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,204 +30,150 @@ pub struct MonitorInfo {
     pub primary: bool,
 }
 
-pub fn overlay_window(app: &AppHandle) -> Option<WebviewWindow> {
-    app.get_webview_window(OVERLAY_LABEL)
-}
-
 pub fn settings_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(SETTINGS_LABEL)
 }
 
-fn monitor_info(monitor: &tauri::Monitor, primary: Option<&tauri::Monitor>) -> MonitorInfo {
-    MonitorInfo {
-        name: monitor
-            .name()
-            .cloned()
-            .unwrap_or_else(|| "monitor".to_string()),
-        x: monitor.position().x,
-        y: monitor.position().y,
-        width: monitor.size().width,
-        height: monitor.size().height,
-        scale_factor: monitor.scale_factor(),
-        primary: primary
-            .map(|primary| {
-                primary.position() == monitor.position() && primary.size() == monitor.size()
-            })
-            .unwrap_or(false),
-    }
-}
-
-pub fn monitor_list(window: &WebviewWindow) -> Result<Vec<MonitorInfo>, String> {
-    let primary = window
-        .primary_monitor()
-        .map_err(|error| error.to_string())?;
-    let monitors = window
-        .available_monitors()
-        .map_err(|error| error.to_string())?;
-
-    Ok(monitors
-        .iter()
-        .map(|monitor| monitor_info(monitor, primary.as_ref()))
-        .collect())
-}
-
-fn resolve_monitor(window: &WebviewWindow, name: Option<&str>) -> Result<tauri::Monitor, String> {
-    let monitors = window
-        .available_monitors()
-        .map_err(|error| error.to_string())?;
-
-    if let Some(name) = name {
-        if let Some(monitor) = monitors
-            .iter()
-            .find(|monitor| monitor.name().map(String::as_str) == Some(name))
-        {
-            return Ok(monitor.clone());
-        }
+/// Open the settings panel, creating its webview only on first use.
+///
+/// Keeping this window out of `tauri.conf.json` avoids a WebKit web process and
+/// network process for users who never open Settings. Closing the window
+/// destroys the webview again; the configuration itself lives on disk, so no
+/// state is lost.
+pub fn open_settings_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    SETTINGS_GENERATION.fetch_add(1, Ordering::SeqCst);
+    if let Some(window) = settings_window(app) {
+        window.show().map_err(|error| error.to_string())?;
+        let _ = window.set_focus();
+        return Ok(window);
     }
 
-    window
-        .primary_monitor()
-        .map_err(|error| error.to_string())?
-        .or_else(|| monitors.first().cloned())
-        .ok_or_else(|| "no monitor is available".to_string())
+    WebviewWindowBuilder::new(app, SETTINGS_LABEL, WebviewUrl::App("settings.html".into()))
+        .title("Discord Linux Overlay — Settings")
+        .inner_size(780.0, 700.0)
+        .min_inner_size(640.0, 520.0)
+        .resizable(true)
+        .center()
+        .build()
+        .map_err(|error| error.to_string())
 }
 
-/// Apply the configured placement to the overlay window.
+pub fn monitor_list(app: &AppHandle) -> Result<Vec<MonitorInfo>, String> {
+    crate::native_overlay::monitor_list(app)
+}
+
 pub fn apply_placement(app: &AppHandle, config: &Config) -> Result<(), String> {
-    let Some(window) = overlay_window(app) else {
-        return Ok(());
-    };
-
-    let monitors = monitor_list(&window)?;
-    let rects: Vec<MonitorRect> = monitors
-        .iter()
-        .map(|monitor| MonitorRect::new(monitor.x, monitor.y, monitor.width, monitor.height))
-        .collect();
-
-    if config.placement.mode == PlacementMode::Manual {
-        if let (Some(x), Some(y)) = (config.placement.x, config.placement.y) {
-            let scale = window.scale_factor().unwrap_or(1.0);
-            let width = (config.placement.width * scale).round().max(1.0) as u32;
-            let height = (config.placement.height * scale).round().max(1.0) as u32;
-            let saved = WindowPlacement {
-                x,
-                y,
-                width,
-                height,
-            };
-
-            if !is_offscreen(saved, &rects) {
-                window
-                    .set_position(PhysicalPosition::new(saved.x, saved.y))
-                    .map_err(|error| error.to_string())?;
-                return Ok(());
-            }
-
-            if let Some(primary) = rects.first().copied() {
-                let clamped = clamp_into_monitor(saved, primary);
-                window
-                    .set_position(PhysicalPosition::new(clamped.x, clamped.y))
-                    .map_err(|error| error.to_string())?;
-            }
-        }
-        return Ok(());
-    }
-
-    let monitor = resolve_monitor(&window, config.placement.monitor.as_deref())?;
-    let placement = compute_placement(
-        MonitorRect::new(
-            monitor.position().x,
-            monitor.position().y,
-            monitor.size().width,
-            monitor.size().height,
-        ),
-        (config.placement.width, config.placement.height),
-        monitor.scale_factor(),
-        config.placement.anchor,
-        (config.placement.offset_x, config.placement.offset_y),
-    )
-    .map_err(|error| error.to_string())?;
-
-    // Some Wayland compositors reject set_position; resizing is still useful,
-    // so ignore a positioning failure instead of aborting.
-    if let Err(error) = window.set_position(PhysicalPosition::new(placement.x, placement.y)) {
-        log::debug!("could not position overlay: {error}");
-    }
-    window
-        .set_size(PhysicalSize::new(placement.width, placement.height))
-        .map_err(|error| error.to_string())?;
-
-    Ok(())
+    crate::native_overlay::apply_placement(app, config)
 }
 
-/// Apply behaviour settings that map directly onto window properties.
-pub fn apply_behavior(app: &AppHandle, config: &Config) -> Result<(), String> {
-    let Some(window) = overlay_window(app) else {
-        return Ok(());
-    };
-
-    if let Err(error) = window.set_always_on_top(config.behavior.always_on_top) {
-        log::debug!("always-on-top is not supported here: {error}");
-    }
-    if let Err(error) = window.set_ignore_cursor_events(config.behavior.click_through) {
-        log::debug!("click-through is not supported here: {error}");
-    }
-    if let Err(error) = window.set_resizable(!config.behavior.lock_position) {
-        log::debug!("could not change resizability: {error}");
-    }
-
-    Ok(())
+pub fn apply_behavior(app: &AppHandle, config: &Config) {
+    crate::native_overlay::apply_behavior(app, config);
 }
 
 pub fn show_overlay(app: &AppHandle) {
-    if let Some(window) = overlay_window(app) {
-        let _ = window.show();
-        let config = app.state::<AppState>().config();
-        let _ = apply_placement(app, &config);
-
-        // Intentionally never call set_focus(): showing the overlay must not
-        // pull keyboard focus away from a game.
-        let _ = config.behavior.click_through;
-    }
+    crate::native_overlay::show(app);
 }
 
 pub fn hide_overlay(app: &AppHandle) {
-    if let Some(window) = overlay_window(app) {
-        let _ = window.hide();
-    }
+    crate::native_overlay::hide(app);
 }
 
 pub fn is_visible(app: &AppHandle) -> bool {
-    overlay_window(app)
-        .and_then(|window| window.is_visible().ok())
-        .unwrap_or(false)
+    crate::native_overlay::is_visible(app)
 }
 
-/// Persist the current bounds of a manually dragged overlay.
-pub fn remember_bounds(app: &AppHandle, window: &WebviewWindow) {
-    let state = app.state::<AppState>();
-    let mut config = state.config();
-    if config.placement.mode != PlacementMode::Manual {
+pub fn overlay_diagnostics(app: &AppHandle) -> Vec<String> {
+    crate::native_overlay::describe(app)
+}
+
+/// WebKitGTK keeps a suspended web process (and its network process) in a pool
+/// after the last web view is destroyed. That is harmless for a browser but
+/// costs ~180 MiB here, so after closing Settings we terminate the WebKit
+/// children of this process. The next Settings window starts fresh ones.
+///
+/// Only descendants whose executable is WebKit's own helper are signalled, and
+/// only if no Settings window was opened again while waiting.
+pub fn release_webkit_children(app: &AppHandle) {
+    if !app.webview_windows().is_empty() {
         return;
     }
+    let generation = SETTINGS_GENERATION.load(Ordering::SeqCst);
+    let root = std::process::id();
 
-    let Ok(position) = window.outer_position() else {
-        return;
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(900));
+        if SETTINGS_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let pids = webkit_descendants(root);
+        if pids.is_empty() {
+            return;
+        }
+        for pid in &pids {
+            // SIGTERM lets WebKit shut down its IPC and child processes cleanly.
+            unsafe {
+                libc::kill(*pid as i32, libc::SIGTERM);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(400));
+        for pid in pids {
+            if let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) {
+                if exe.to_string_lossy().contains("WebKit") {
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGKILL);
+                    }
+                }
+            }
+        }
+        // WebKit leaves large freed heap arenas behind in the UI process.
+        // Returning them to the kernel is safe here: Settings just closed and
+        // the next paint is a simple native overlay frame.
+        unsafe {
+            libc::malloc_trim(0);
+        }
+    });
+}
+
+fn webkit_descendants(root: u32) -> Vec<u32> {
+    use std::collections::HashMap;
+
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
     };
-    let Ok(size) = window.inner_size() else {
-        return;
-    };
-    let scale = window.scale_factor().unwrap_or(1.0);
-
-    config.placement.x = Some(position.x);
-    config.placement.y = Some(position.y);
-    config.placement.width = (size.width as f64 / scale).max(64.0);
-    config.placement.height = (size.height as f64 / scale).max(64.0);
-
-    if let Err(error) = state.config_store.save(&config) {
-        log::warn!("could not persist overlay bounds: {error}");
-        return;
+    for entry in entries.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        // The command name is parenthesised and may contain spaces; the parent
+        // PID is the field after the final `)`.
+        let Some(close) = stat.rfind(')') else {
+            continue;
+        };
+        let mut fields = stat[close + 1..].split_whitespace();
+        let _state = fields.next();
+        let Some(ppid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        children.entry(ppid).or_default().push(pid);
     }
-    *lock(&state.config) = config.clone();
-    let _ = app.emit("config:changed", &config);
+
+    let mut result = Vec::new();
+    let mut stack = vec![root];
+    while let Some(parent) = stack.pop() {
+        if let Some(kids) = children.get(&parent) {
+            for kid in kids {
+                if let Ok(exe) = std::fs::read_link(format!("/proc/{kid}/exe")) {
+                    if exe.to_string_lossy().contains("WebKit") {
+                        result.push(*kid);
+                    }
+                }
+                stack.push(*kid);
+            }
+        }
+    }
+    result
 }

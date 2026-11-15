@@ -4,14 +4,21 @@ mod commands;
 mod control;
 mod diagnose;
 mod discord;
+mod native_overlay;
 mod platform;
 mod state;
 mod tray;
 mod windows;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use discord_overlay_core::control::{parse_args, Request, HELP};
 use state::AppState;
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{Emitter, Listener, Manager, WindowEvent};
+
+/// Set right before an intentional shutdown, so the windowless app is allowed
+/// to leave its event loop.
+pub static QUITTING: AtomicBool = AtomicBool::new(false);
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -25,7 +32,10 @@ fn main() {
 
     // Diagnostics are also useful before anything is running, so they are
     // handled before the usual single-instance hand-off.
-    if args.iter().any(|arg| arg == "--diagnose" || arg == "diagnose") {
+    if args
+        .iter()
+        .any(|arg| arg == "--diagnose" || arg == "diagnose")
+    {
         match control::send_request(Request::Diagnose) {
             Ok(response) => println!("{}", response.message),
             Err(_) => println!("{}", diagnose::offline_report()),
@@ -96,19 +106,11 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let config = app.state::<AppState>().config();
+            let overlay_state = state::lock(&app.state::<AppState>().overlay).clone();
+            let status = state::lock(&app.state::<AppState>().status).clone();
 
-            if let Some(window) = windows::overlay_window(&handle) {
-                if let Err(error) = window.set_always_on_top(config.behavior.always_on_top) {
-                    log::debug!("always-on-top unavailable: {error}");
-                }
-                if let Err(error) = window.set_ignore_cursor_events(config.behavior.click_through) {
-                    log::debug!("click-through unavailable: {error}");
-                }
-                if let Err(error) = window.set_resizable(!config.behavior.lock_position) {
-                    log::debug!("resizability unavailable: {error}");
-                }
-                let _ = window.set_skip_taskbar(config.behavior.click_through);
-            }
+            native_overlay::init(&handle, &config, &overlay_state, &status)
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
 
             if let Err(error) = windows::apply_placement(&handle, &config) {
                 log::warn!("could not apply the saved overlay placement: {error}");
@@ -116,6 +118,11 @@ fn main() {
 
             if config.general.start_hidden {
                 windows::hide_overlay(&handle);
+            }
+
+            for event in ["config:changed", "overlay:state", "connection:status"] {
+                let listener = handle.clone();
+                handle.listen(event, move |_| native_overlay::refresh(&listener));
             }
 
             if let Err(error) = tray::create(&handle) {
@@ -129,34 +136,21 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            let app = window.app_handle();
-
-            match event {
-                WindowEvent::CloseRequested { api, .. }
-                    if window.label() == windows::SETTINGS_LABEL =>
-                {
-                    // The settings window is a singleton panel; hiding it keeps
-                    // the app (and the overlay) alive.
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                WindowEvent::Moved(_) | WindowEvent::Resized(_)
-                    if window.label() == windows::OVERLAY_LABEL =>
-                {
-                    let state = app.state::<AppState>();
-                    let mut last_save = state::lock(&state.last_bounds_save);
-                    if last_save.elapsed() > std::time::Duration::from_millis(500) {
-                        *last_save = std::time::Instant::now();
-                        drop(last_save);
-                        if let Some(overlay) = windows::overlay_window(&app) {
-                            windows::remember_bounds(&app, &overlay);
-                        }
-                    }
-                }
-                _ => {}
+            if matches!(event, WindowEvent::Destroyed) && window.label() == windows::SETTINGS_LABEL
+            {
+                windows::release_webkit_children(window.app_handle());
             }
         })
         .build(tauri::generate_context!())
         .expect("failed to start Discord Linux Overlay")
-        .run(|_app, _event| {});
+        .run(|_app, event| {
+            // The overlay is a native GTK window owned by this process, and the
+            // settings webview only exists on demand. Tauri sees zero webview
+            // windows, so keep the event loop alive until quit is requested.
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !QUITTING.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

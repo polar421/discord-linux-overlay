@@ -44,35 +44,7 @@ pub fn runtime_report(app: &AppHandle) -> String {
     let credentials_configured = lock(&state.credentials).is_configured();
     let cached_token = state.token_store.load().is_some();
 
-    let mut overlay_lines = Vec::new();
-    match windows::overlay_window(app) {
-        Some(window) => {
-            let visible = window
-                .is_visible()
-                .map(|value| if value { "yes" } else { "no" })
-                .unwrap_or("unknown");
-            overlay_lines.push(format!("visible: {visible}"));
-
-            let position = window
-                .outer_position()
-                .map(|position| format!("{},{}", position.x, position.y))
-                .unwrap_or_else(|_| "unknown".to_string());
-            overlay_lines.push(format!("position: {position} (physical pixels)"));
-
-            let size = window
-                .inner_size()
-                .map(|size| format!("{}x{}", size.width, size.height))
-                .unwrap_or_else(|_| "unknown".to_string());
-            overlay_lines.push(format!("size: {size} (physical pixels)"));
-
-            let scale = window
-                .scale_factor()
-                .map(|scale| format!("{scale}"))
-                .unwrap_or_else(|_| "unknown".to_string());
-            overlay_lines.push(format!("scale factor: {scale}"));
-        }
-        None => overlay_lines.push("window: not created".to_string()),
-    }
+    let mut overlay_lines = windows::overlay_diagnostics(app);
 
     let config = state.config();
     overlay_lines.push(format!(
@@ -90,8 +62,7 @@ pub fn runtime_report(app: &AppHandle) -> String {
         cached_token,
         participant_count: overlay_state.participants.len(),
         channel: overlay_state.channel.as_ref().map(|c| c.name.clone()),
-        settings_window: windows::settings_window(app)
-            .and_then(|window| window.is_visible().ok()),
+        settings_window: windows::settings_window(app).and_then(|window| window.is_visible().ok()),
         overlay: overlay_lines,
     };
 
@@ -166,7 +137,9 @@ fn render(config: &Config, runtime: Option<&Runtime>) -> String {
     let _ = writeln!(
         out,
         "nvidia driver: {}",
-        info.nvidia_driver.clone().unwrap_or_else(|| "unknown".to_string())
+        info.nvidia_driver
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string())
     );
     let _ = writeln!(
         out,
@@ -251,7 +224,10 @@ fn render(config: &Config, runtime: Option<&Runtime>) -> String {
             let _ = writeln!(
                 out,
                 "voice channel: {}",
-                runtime.channel.clone().unwrap_or_else(|| "none".to_string())
+                runtime
+                    .channel
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string())
             );
             let _ = writeln!(out, "participants: {}", runtime.participant_count);
             let _ = writeln!(
