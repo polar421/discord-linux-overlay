@@ -17,10 +17,11 @@ session). See [TESTING.md](TESTING.md).*
 
 > **Status: v0.1.0, early development.** The Discord IPC client, participant
 > state machine and settings model are implemented and covered by automated
-> tests (including an end-to-end fake-Discord session). The GUI could not be
-> compiled or run in the headless development container used to write it, so
-> **nothing here has been verified on a real KDE Wayland desktop yet**. Read
-> [TESTING.md](TESTING.md) for exactly what was and was not tested.
+> tests (including an end-to-end fake-Discord session), and the full Tauri shell
+> is compiled and linked by CI on Ubuntu 24.04 with WebKitGTK. It has **not been
+> run on a real desktop** — the development container is headless and has no
+> Discord, KDE or GPU — so nothing is verified on a live KDE Wayland session yet.
+> Read [TESTING.md](TESTING.md) for exactly what was and was not tested.
 
 ## Features
 

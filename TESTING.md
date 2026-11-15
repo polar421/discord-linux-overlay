@@ -16,10 +16,10 @@ Honest record of what was executed and what was not.
 | Display / X11 / Wayland socket | none |
 
 Consequence: everything below is **automated/headless** verification. The
-application could not be compiled here because GTK3/WebKitGTK development headers
-need root to install, and it could not be run because there is no desktop. The
-Tauri shell is compiled by CI (`.github/workflows/ci.yml`) on Ubuntu with those
-packages.
+application could not be compiled locally because GTK3/WebKitGTK development
+headers need root to install, and it cannot be run here because there is no
+desktop. The Tauri shell **is** compiled by CI (`.github/workflows/ci.yml`) on a
+GitHub-hosted Ubuntu 24.04 runner with those packages — see section 5.
 
 ## Executed and passing
 
@@ -57,7 +57,21 @@ panel) → `GET /` and `GET /settings.html` both returned HTTP 200 with the
 preview host header. The browser mock harness renders the overlay and settings
 with simulated participants.
 
-### 4. Browser preview (UI only)
+### 4. Tauri shell compilation — GitHub Actions `.github/workflows/ci.yml`
+
+```
+run for commit 22c0714 (main): Core crate tests ✓  Front end typecheck and build ✓  Tauri shell build (Linux) ✓
+```
+
+The `Tauri shell build (Linux)` job installs `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
+`libayatana-appindicator3-dev`, `librsvg2-dev` and `patchelf`, builds the front end,
+then runs `cargo build --manifest-path src-tauri/Cargo.toml --features custom-protocol`.
+It succeeds, and produces the `discord-linux-overlay` binary. That proves the whole
+GUI shell — Tauri configuration, capabilities, tray, window management, commands,
+control socket, Discord client thread — **compiles and links** on Linux.
+It is a compile check only: no window is opened and nothing is exercised at runtime.
+
+### 5. Browser preview (UI only)
 
 The overlay and settings documents were rendered in the Cloud browser panel
 against the mock feed: four simulated participants with exactly one speaking
