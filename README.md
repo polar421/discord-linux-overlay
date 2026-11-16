@@ -151,6 +151,7 @@ rewritten. Full methodology, raw runs and the 30-minute stability data are in
 
 ```sh
 ./scripts/benchmark.sh --repeat 3 --duration 15   # full measurement
+./scripts/stability.sh 30                        # 30-minute stability run
 ./scripts/perf-check.sh                          # fast regression gate
 ```
 

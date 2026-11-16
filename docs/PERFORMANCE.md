@@ -126,10 +126,11 @@ is why the post-Settings floor is ~152–155 MiB rather than the pre-Settings
 
 ## Long-running stability
 
-A 30-minute sampler ran the final release binary on the target desktop, sampling
-once per minute (whole tree, PSS/RSS/child count/CPU ticks). At minute 5 it
-performed ten `--toggle` show/hide cycles; at minutes 10 and 20 it opened
-Settings for 3 s, then closed it.
+The reproducible 30-minute sampler (`./scripts/stability.sh 30`) ran the final
+release binary on the target desktop, sampling once per minute (whole tree,
+PSS/RSS/child count/CPU ticks). At minute 5 it performed ten `--toggle`
+show/hide cycles; at minutes 10 and 20 it opened Settings for 3 s, then closed
+it.
 
 | Phase | Samples | PSS | RSS | Children |
 | --- | --- | --- | --- | --- |
@@ -214,6 +215,9 @@ WebKit is running.
 ```sh
 # full report
 ./scripts/benchmark.sh --repeat 3 --duration 15
+
+# 30-minute stability run (10 toggles at minute 5, Settings at 10 and 20)
+./scripts/stability.sh 30
 
 # fast regression gate (exit 1 if idle PSS > 200 MiB, CPU > 0.8%, startup > 1500 ms)
 ./scripts/perf-check.sh

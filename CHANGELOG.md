@@ -17,7 +17,8 @@
 - Fixed KWin server-side decorations on native Wayland by installing an empty
   CSD titlebar (the same workaround tao uses).
 - Added `scripts/benchmark.sh` (whole-tree PSS/RSS/private/CPU/startup/GPU,
-  medians, settings cycle, optional long run) and `scripts/perf-check.sh`
+  medians, settings cycle, optional long run), `scripts/stability.sh`
+  (30-minute sampler with toggle/Settings stressors) and `scripts/perf-check.sh`
   (regression gate: PSS ≤ 200 MiB, CPU ≤ 0.8 %, startup ≤ 1500 ms).
 - Added [docs/PERFORMANCE.md](docs/PERFORMANCE.md),
   [docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md) and

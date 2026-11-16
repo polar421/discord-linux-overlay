@@ -226,7 +226,7 @@ To finish this: start the official Discord client, create a Discord application
 cd packaging && makepkg -f --nodeps
 ```
 
-Result: **success** — `packaging/discord-linux-overlay-git-r12.33dc13a-1-x86_64.pkg.tar.zst`,
+Result: **success** — `packaging/discord-linux-overlay-git-r13.9c711ff-1-x86_64.pkg.tar.zst`,
 3.97 MiB compressed, 12.12 MiB installed, 29 files:
 
 ```

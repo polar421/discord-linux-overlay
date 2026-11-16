@@ -152,8 +152,9 @@ speaker rotation exists only in the browser mock under `src/lib/mock.ts`).
 
 ## 7. Stability
 
-The 30-minute sampler (minute-by-minute PSS/RSS, 10 show/hide toggles at minute
-5, Settings open/close at minutes 10 and 20) verifies:
+The 30-minute sampler (`./scripts/stability.sh 30`: minute-by-minute PSS/RSS,
+10 show/hide toggles at minute 5, Settings open/close at minutes 10 and 20)
+verifies:
 
 - initial idle was flat at 37.86–37.87 MiB PSS and 65,796 kB RSS for five
   minutes;
