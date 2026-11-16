@@ -57,15 +57,17 @@ libayatana-appindicator-WARNING: libayatana-appindicator is deprecated...
 
 | Check | Evidence | Result |
 | --- | --- | --- |
-| Settings window exists but starts hidden | `--diagnose`: `settings window: created, hidden` | pass |
-| Settings window opens | `--settings` → `settings window: open` | pass |
-| Overlay window exists and is mapped | `--diagnose`: `visible: yes`, `size: 320x440` | pass |
-| Transparency | KWin window capture (`spectacle -a`) → PNG `alpha=Blend, opaque=False` | **pass** |
+| No web view is created at startup | `--diagnose`: `settings window: not created`; process tree has one process | pass |
+| Settings window opens on demand | `--settings` → `settings window: open`, WebKit helpers appear | pass |
+| Settings window is destroyed on close | `--close-settings` → `settings window: not created`; WebKit helpers gone | pass |
+| Overlay window exists and is mapped | `--diagnose`: `visible: yes`, `size: 320x440`, `renderer: native GTK/cairo` | pass |
+| Transparency | KWin window capture (`spectacle -a`) → PNG `alpha=Blend, opaque=False`; center pixel `srgba(0,0,0,0)` | **pass** |
+| Decorations off on Wayland | `--diagnose`: `decorated: no`, `RGBA visual: yes`; capture has no titlebar | **pass** |
 | UI actually paints | same capture contains text, icons and the status row | **pass** |
 
 Window-scoped captures (only this application's windows, not the desktop):
 
-![Overlay on native Wayland](docs/screenshots/real-wayland-overlay.png)
+![Native overlay on Wayland](docs/screenshots/native-overlay-empty.png)
 
 ![Settings on XWayland with software rendering](docs/screenshots/real-xwayland-settings.png)
 
@@ -156,28 +158,53 @@ stayed enabled.
 
 ### 1.8 Performance (idle, not connected)
 
-Measured from `/proc/<pid>/stat` over 10 s with the overlay visible, no voice
-session, settings window never opened:
+#### Original WebKit overlay — baseline, 3 runs × 10 s
 
 | Metric | Debug | Release |
 | --- | --- | --- |
-| CPU (one core) | 8 ticks / 10 s = **0.8 %** | 4 ticks / 10 s = **0.4 %** |
-| Main process RSS | ~240 MB | **212 MB** |
+| CPU (one core) | 0.8 % | 0.0–0.4 % |
+| Main process RSS | ~240 MB | 212 MB |
 | Threads | 22 | — |
-| Binary size | 276 MB | **18 MB** |
+| Binary size | 276 MB | 18 MB |
 
-Process tree (release): main 212 MB, `WebKitNetworkProcess` 65 MB,
-two `WebKitWebProcess` 259 MB + 248 MB → **~785 MB RSS in total**. Summing RSS
-overcounts pages shared between the processes, so the resident truth is lower,
-but this is the measured upper bound. Both web views (overlay and the hidden
-settings window) are created at startup, which is where the two WebKit processes
-come from; lazily creating the settings view is the obvious future optimisation.
+Process tree (release): main 212 MB, `WebKitNetworkProcess` 65 MB, two
+`WebKitWebProcess` 259 MB + 248 MB → **~785 MB summed RSS**. PSS measurement
+later put the true footprint at **376.1 MiB PSS / 734.0 MiB RSS**, with the
+overlay web process at 119 MiB and the hidden settings process at 114 MiB.
+Creating the settings view lazily reduced this to 302 MiB, but the WebKit floor
+stayed at 265 MiB even with DMA-BUF disabled. That is why the overlay was
+rewritten natively.
+
+#### Native GTK overlay — final, 3 runs × 12 s (release)
+
+| Metric | Idle | Settings open | Just closed |
+| --- | --- | --- | --- |
+| Whole-tree PSS | **38.1–38.4 MiB** | 313.1–315.2 MiB | 152.4–155.2 MiB |
+| Whole-tree RSS | 64.6–65.2 MiB | 511.0–513.3 MiB | 192.3–195.0 MiB |
+| Private dirty | 18.4 MiB | — | — |
+| Process tree | 1 process, 9 threads | 3 processes | 1 process |
+| CPU (one core) | 0.00 % | — | — |
+| Startup to overlay visible | 293–308 ms (median 294) | — | — |
+| GPU | not listed in `nvidia-smi pmon`; no GPU context | — | — |
+
+Five open/close cycles were flat (no leak); 20 show/hide toggles, 10 lock
+toggles and pin on/off all left the process at the same footprint. A 30-minute
+stability run (10 toggles at minute 5, Settings open/close at minutes 10 and 20)
+held 37.86–37.87 MiB PSS before Settings and 149.8–150.6 MiB after it, with no
+upward trend and 0.06% average CPU. The before/after methodology, per-run
+output and the full stability table are documented in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md); the memory breakdown is in
+[docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md).
+
+Reproduce with `./scripts/benchmark.sh --repeat 3 --duration 15`; the fast gate
+is `./scripts/perf-check.sh` (PSS ≤ 200 MiB, CPU ≤ 0.8 %, startup ≤ 1500 ms).
 
 GPU usage is **not attributable**: `nvidia-smi` only reports whole-GPU load
 (other applications were using the GPU during the measurement).
 
 CPU figures are for an idle, unconnected overlay; speaking indicators in an
-active voice channel will repaint more often (not measured).
+active voice channel trigger event-driven repaints (not measured against real
+Discord).
 
 ### 1.9 Discord — not testable in this session
 
@@ -199,8 +226,8 @@ To finish this: start the official Discord client, create a Discord application
 cd packaging && makepkg -f --nodeps
 ```
 
-Result: **success** — `packaging/discord-linux-overlay-git-r8.6b84d31-1-x86_64.pkg.tar.zst`,
-3.91 MiB compressed, 11.96 MiB installed, 29 files:
+Result: **success** — `packaging/discord-linux-overlay-git-r12.33dc13a-1-x86_64.pkg.tar.zst`,
+3.97 MiB compressed, 12.12 MiB installed, 29 files:
 
 ```
 usr/bin/discord-linux-overlay
@@ -215,9 +242,14 @@ architecture and runtime dependencies (webkit2gtk-4.1, gtk3,
 libayatana-appindicator, librsvg, hicolor-icon-theme).
 
 The packaged binary was extracted to a temporary directory and executed:
-`--diagnose` produced the full report and `--status` correctly failed with
-"is Discord Linux Overlay running?" since no instance was up. The package was
+`--help`, `--diagnose` and a short native-overlay run were checked. The running
+package reported `visible: yes`, `renderer: native GTK3/cairo`, `decorated:
+false`, `rgba visual: true`, `settings window: not created`, 0 children and
+**39,036 kB PSS / 65,908 kB RSS**; `--quit` exited cleanly. The package was
 **not installed system-wide** — that would need root and the user's approval.
+makepkg reports a harmless `Package contains reference to $srcdir` warning
+because Rust embeds absolute source paths in panic messages; the binary is
+stripped and runs normally.
 
 First packaging attempt failed at link time with undefined `ring_core_*` symbols
 because makepkg's default `lto` option passes `-flto` to the C flags used by
@@ -288,7 +320,7 @@ This exercises React and CSS only — **not** the Tauri application.
 | 9 | Global shortcuts (X11 path) | session is Wayland |
 | 10 | Steam / Proton / Vulkan / OpenGL / borderless / exclusive fullscreen | no game launched |
 | 11 | GPU usage attributable to the app | `nvidia-smi` only reports whole-GPU load |
-| 12 | Release-build idle CPU/RSS | debug measured; release pending |
+| 12 | Release-build idle CPU/PSS/RSS | ✅ measured: 0.00 % CPU, 38.1 MiB PSS, 64.6 MiB RSS |
 | 13 | Flatpak manifest, AppImage bundling | not attempted |
 | 14 | Autostart entry, hotkey registration UI | code paths exist, not exercised |
 
@@ -324,4 +356,6 @@ Discord, join a channel.
 | Shortcuts / CLI | ✅ CLI; hotkeys ☐ |
 | Borderless game | ☐ |
 | Exclusive fullscreen | ☐ (expected: no overlay) |
-| Idle CPU / GPU | ✅ CPU 0.8 % (debug); GPU ☐ |
+| Idle CPU / GPU | ✅ release CPU 0.00 %; GPU not attributable (no GPU context) |
+| Native overlay memory | ✅ 38.1 MiB PSS / 65.0 MiB RSS idle |
+| Settings open/close memory | ✅ 313 MiB open, ~153 MiB after close, stable over 5 cycles |

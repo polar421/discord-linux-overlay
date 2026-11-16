@@ -22,6 +22,12 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Versions used while developing: Rust 1.100, Node 26, npm 11. Tauri v2 requires
 Rust 1.77+ and Node 20+.
 
+The native overlay needs only GTK3, Pango, gdk-pixbuf and cairo (all part of the
+`gtk3` dependency tree). WebKitGTK is linked for the on-demand Settings window,
+so the same packages are still required; no additional system libraries are
+needed for the native renderer. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md)
+for the measured build and `./scripts/benchmark.sh` for reproduction.
+
 ## Front end
 
 ```sh

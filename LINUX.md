@@ -3,7 +3,9 @@
 This document records what actually works on Wayland, what does not, and why the
 original Overlayed installation fails on NVIDIA. It is grounded in the WebKitGTK,
 Tauri and NVIDIA bug reports listed at the end, and in reading Overlayed's own
-source.
+source. The overlay itself is now native GTK/cairo (see §5); WebKitGTK is used
+only for the on-demand Settings window, so the WebKit notes below apply to that
+window and to the historical WebKit overlay.
 
 Nothing in this file is guesswork presented as fact: items that were not verified
 on a real KDE Plasma + NVIDIA machine are marked **unverified**.
@@ -152,23 +154,29 @@ works for users without a tray.
 
 ## 5. Choice of toolkit and renderer
 
-The overlay is a Tauri v2 application, like upstream. That means GTK3 + WebKitGTK
-on Linux. The alternative (Chromium/Electron) would avoid WebKitGTK's GBM bug but
-costs several hundred MB of RAM and constant GPU work — the opposite of what a
-game overlay should do.
+The overlay is **native GTK3/cairo** on top of a Tauri v2 shell; WebKitGTK is
+only used for the on-demand Settings window. This was a measured decision, not a
+style preference: the WebKit overlay could not get below **265 MiB PSS** even
+with DMA-BUF disabled, while the native overlay idles at **38 MiB PSS** and does
+not use a GPU context. The native renderer also sidesteps WebKitGTK's GBM bug
+for the always-visible window. Measurements and experiments:
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md) and
+[docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md).
 
-Mitigations are therefore:
+Mitigations that still apply to the Settings web view:
 
 1. native Wayland by default (GTK picks Wayland when `WAYLAND_DISPLAY` is set),
 2. the explicit-sync workaround above,
-3. an opt-in software-rendering switch for X11/XWayland,
-4. a deliberately cheap overlay UI: no `backdrop-filter`, no blur, no canvas, no
-   continuous animations. Speaking is a border/background colour change, which
-   WebKit can composite without re-rasterising the whole surface.
+3. an opt-in software-rendering switch for X11/XWayland, and
+4. keeping Settings closed when it is not needed: the window and its WebKit
+   helpers are destroyed on close, so the idle overlay does not pay for them.
+
+The overlay itself has no web content, no `backdrop-filter`, no blur, no canvas
+and no animation loop; speaking is a ring drawn by cairo on the Discord event.
 
 `GDK_BACKEND=x11` remains a supported escape hatch: absolute anchoring and
 `_NET_WM_STATE_ABOVE` work there, at the cost of needing
-`WEBKIT_DISABLE_DMABUF_RENDERER=1` on NVIDIA.
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` on NVIDIA **for the Settings window**.
 
 ## 6. Games: what is and is not possible
 

@@ -7,23 +7,26 @@ fails with `Failed to create GBM buffer: Invalid argument`.
 It shows who is in your Discord voice channel, highlights the people who are
 speaking, and marks who is muted or deafened, on top of games and applications.
 
-![Overlay showing a speaking participant, a muted participant and a deafened participant](docs/screenshots/overlay.png)
+![Native overlay showing a speaking participant, a muted participant and a deafened participant](docs/screenshots/native-overlay-participants.png)
 
-![Settings window, appearance tab with live preview](docs/screenshots/settings.png)
+![Real settings window on KDE Wayland](docs/screenshots/real-wayland-settings.png)
 
-*Screenshots were captured from the browser preview harness with simulated
-participants (the headless build machine has no Discord client or desktop
-session). See [TESTING.md](TESTING.md).*
+*The overlay is now native GTK and was captured from the running application on
+the target desktop. The participant rows use a temporary synthetic state because
+Discord was not running; the empty state was captured with the real app. See
+[TESTING.md](TESTING.md) and [docs/PERFORMANCE.md](docs/PERFORMANCE.md).*
 
 > **Status: v0.1.0, early development.** The Discord IPC client, participant
-> state machine and settings model are implemented and covered by automated
-> tests (including an end-to-end fake-Discord session). The app has been **built
-> and run on the target machine** (CachyOS, KDE Plasma 6 Wayland, RTX 3060): the
-> overlay and settings windows open, the overlay surface is genuinely transparent,
-> the CLI controls work, settings survive a restart and the tray item registers.
-> **Discord itself is not yet verified**: Discord was not running and no Discord
-> application credentials were configured, so no live voice session has been
-> tested. Read [TESTING.md](TESTING.md) for exactly what was and was not tested.
+> state machine, native overlay and settings model are implemented and covered by
+> automated tests (including an end-to-end fake-Discord session). The app has
+> been **built and run on the target machine** (CachyOS, KDE Plasma 6 Wayland,
+> RTX 3060): the native overlay and on-demand settings window open, the overlay
+> surface is genuinely transparent and undecorated, the CLI controls work,
+> settings survive a restart, the tray item registers, and idle memory is
+> **38.1 MiB PSS / 65.0 MiB RSS** for the whole process tree. **Discord itself is
+> not yet verified**: Discord was not running and no Discord application
+> credentials were configured, so no live voice session has been tested. Read
+> [TESTING.md](TESTING.md) for exactly what was and was not tested.
 
 ## Features
 
@@ -50,12 +53,12 @@ session). See [TESTING.md](TESTING.md).*
 
 | Component | Requirement |
 | --- | --- |
-| OS | Linux (developed against CachyOS / Arch; any GTK3 + WebKitGTK distro) |
+| OS | Linux (developed against CachyOS / Arch; any GTK3 distro with WebKitGTK for Settings) |
 | Desktop | KDE Plasma 6 Wayland (primary target) or any X11 desktop |
-| GPU | NVIDIA works; AMD/Intel work (with the standard WebKitGTK caveats) |
+| GPU | NVIDIA, AMD and Intel work; the overlay itself needs no GPU context (Settings uses WebKitGTK) |
 | Discord | **Official Discord desktop client** (Vesktop/ArmCord do *not* expose RPC voice) |
 | Discord app | Your own free Discord application — see [docs/DISCORD_SETUP.md](docs/DISCORD_SETUP.md) |
-| Runtime | `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator` (tray) |
+| Runtime | `gtk3`, `pango`, `gdk-pixbuf2`, `libayatana-appindicator` (tray); `webkit2gtk-4.1` only for the on-demand Settings window |
 
 ## Install (CachyOS / Arch)
 
@@ -109,15 +112,47 @@ Installation details, removal and Flatpak/AppImage notes:
 
 ### Verified on real hardware
 
-Native Wayland (KWin, RTX 3060), captured from the running application — the
-checkerboard-free grey field is the transparent surface, stored with alpha:
+Native Wayland (KWin, RTX 3060), captured from the running application. The
+surface is genuinely transparent (alpha 0 outside the rounded panels) and has
+no window decorations:
 
-![Real overlay window on KDE Wayland](docs/screenshots/real-wayland-overlay.png)
+![Real native overlay on KDE Wayland](docs/screenshots/native-overlay-empty.png)
 
-XWayland with the DMA-BUF renderer disabled, after the unmodified run reproduced
-`Failed to create GBM buffer: Invalid argument` on this GPU:
+Row and grid layouts with a speaking ring, mute/deafen badges and the avatar
+fallback:
 
-![Real overlay under XWayland](docs/screenshots/real-xwayland-overlay.png)
+![Native overlay row layout](docs/screenshots/native-overlay-row.png)
+![Native overlay grid layout](docs/screenshots/native-overlay-grid.png)
+
+The earlier WebKit overlay under XWayland, kept as historical evidence of the
+NVIDIA DMA-BUF failure (`Failed to create GBM buffer: Invalid argument`) that the
+native renderer no longer hits:
+
+![Earlier WebKit overlay under XWayland](docs/screenshots/real-xwayland-overlay.png)
+
+## Performance
+
+The overlay is native GTK/cairo with no web view, no JavaScript heap and no
+helper processes at idle. Measured release build on the target machine:
+
+| Scenario | PSS | RSS |
+| --- | --- | --- |
+| Idle overlay, Settings closed | **38.1 MiB** | 65.0 MiB |
+| Settings open (WebKit, on demand) | 313 MiB | 511 MiB |
+| Settings just closed (WebKit helpers released) | ~153 MiB | ~193 MiB |
+| Idle CPU | 0.00% of one core | |
+| Startup to visible overlay | ~300 ms | |
+
+The previous WebKit overlay idled at 376 MiB PSS / 734 MiB RSS; the measured
+WebKit floor was 265 MiB even with DMA-BUF disabled, which is why the overlay was
+rewritten. Full methodology, raw runs and the 30-minute stability data are in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md); the contributor breakdown is in
+[docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md).
+
+```sh
+./scripts/benchmark.sh --repeat 3 --duration 15   # full measurement
+./scripts/perf-check.sh                          # fast regression gate
+```
 
 ## Verify the build on your machine
 
@@ -154,8 +189,9 @@ the cost of the WebKitGTK DMA-BUF problem (see troubleshooting).
 
 | Symptom | Fix |
 | --- | --- |
-| `Failed to create GBM buffer: Invalid argument` | Enable *Settings → General → Disable WebKit DMA-BUF renderer*, or run with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Details in [LINUX.md §1](LINUX.md#1-the-reported-failure-explained). |
-| Blank or white overlay window on NVIDIA | Same as above; also check `nvidia_drm.modeset=1`. |
+| `Failed to create GBM buffer: Invalid argument` | Only the Settings window uses WebKit now. Enable *Settings → General → Disable WebKit DMA-BUF renderer*, or run with `WEBKIT_DISABLE_DMABUF_RENDERER=1`. Details in [LINUX.md §1](LINUX.md#1-the-reported-failure-explained). |
+| Blank or white **Settings** window on NVIDIA | Same as above; also check `nvidia_drm.modeset=1`. |
+| Overlay is drawn but looks too light/dark | The panels are translucent when *Settings → Appearance → Background* is solid; the rest of the surface is fully transparent. |
 | `Error 71 (Protocol error) dispatching to Wayland display` | The app sets `__NV_DISABLE_EXPLICIT_SYNC=1` automatically on NVIDIA + Wayland; if you disabled that with `DLO_NO_GRAPHICS_WORKAROUNDS=1`, re-enable it. |
 | Overlay is not above the game | Add the KWin *Keep above* rule; make sure the game is borderless, not exclusive fullscreen. |
 | Overlay is visible but ignores the mouse | That is click-through. Use the tray, the KDE shortcut, or `--toggle-click-through`. |
@@ -167,6 +203,9 @@ the cost of the WebKitGTK DMA-BUF problem (see troubleshooting).
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — components, data flow, crate layout
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) — measured PSS/RSS/CPU/startup, before and after
+- [docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md) — memory contributors, WebKit floor, native design
+- [docs/OPTIMIZATION_CHANGELOG.md](docs/OPTIMIZATION_CHANGELOG.md) — every optimization and its measured impact
 - [LINUX.md](LINUX.md) — Wayland, KWin, NVIDIA, WebKitGTK, games
 - [BUILD.md](BUILD.md) — build prerequisites and artefacts
 - [INSTALL.md](INSTALL.md) — install, autostart, removal, Flatpak/AppImage

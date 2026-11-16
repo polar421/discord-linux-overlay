@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — native overlay and 90% lower memory
+
+- **Replaced the WebKit overlay with a native GTK3/cairo renderer**
+  (`src-tauri/src/native_overlay.rs`): transparency, drag, click-through, all
+  layouts, avatars, speaking ring, mute/deafen/bot badges, status row. The
+  overlay no longer loads React, JavaScriptCore, WebKitWebProcess or a network
+  process. Idle cost went from **376.1 MiB PSS / 734.0 MiB RSS** to **38.1 MiB
+  PSS / 64.6 MiB RSS**, CPU to 0.00 % and startup from 536 ms to 294 ms.
+- **Settings is now on demand and fully torn down on close**: removed from
+  `tauri.conf.json`, built by `WebviewWindowBuilder`, destroyed on close; the
+  app terminates its own WebKit descendants and calls `malloc_trim(0)`. Open
+  cost is 313 MiB PSS, closed is ~153 MiB instead of the previous permanent
+  ~376 MiB. Five open/close cycles showed no growth. Added `--close-settings`
+  for scripting and benchmarks.
+- Fixed KWin server-side decorations on native Wayland by installing an empty
+  CSD titlebar (the same workaround tao uses).
+- Added `scripts/benchmark.sh` (whole-tree PSS/RSS/private/CPU/startup/GPU,
+  medians, settings cycle, optional long run) and `scripts/perf-check.sh`
+  (regression gate: PSS ≤ 200 MiB, CPU ≤ 0.8 %, startup ≤ 1500 ms).
+- Added [docs/PERFORMANCE.md](docs/PERFORMANCE.md),
+  [docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md) and
+  [docs/OPTIMIZATION_CHANGELOG.md](docs/OPTIMIZATION_CHANGELOG.md) with the
+  WebKit floor experiments, raw runs and remaining opportunities.
+- Kept the React overlay and browser preview harness for `npm run dev`; it is no
+  longer part of the shipped runtime.
+
 ## Unreleased — first real desktop verification
 
 - Added `--diagnose`: a full report of version, OS, session, GPU/driver, Discord

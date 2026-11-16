@@ -1,8 +1,15 @@
 # Architecture
 
 Discord Linux Overlay is a Tauri v2 application with a deliberately testable
-core. Everything that can be reasoned about without a display server lives in a
-separate Rust crate.
+core and a **native GTK3 overlay**. Everything that can be reasoned about
+without a display server lives in a separate Rust crate.
+
+The overlay used to be a transparent WebKit web view. WebKitGTK's UI/web/network
+process model put a ~265 MiB floor on the idle application, so the overlay is
+now drawn directly with GTK/cairo (`native_overlay.rs`). Tauri remains for the
+tray, global shortcuts, control socket, Discord worker and the on-demand
+settings web view. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) and
+[docs/MEMORY_ANALYSIS.md](docs/MEMORY_ANALYSIS.md).
 
 ```text
 Discord desktop client
@@ -24,20 +31,21 @@ crates/discord-overlay-core
    ▲
    │  std::sync::mpsc: Status / State / AuthRequired / Log
    ▼
-src-tauri (Tauri shell, GTK3 + WebKitGTK on Linux)
-   ├── main.rs       CLI, single-instance handoff, setup, window events
-   ├── commands.rs   invoke handlers + shared request dispatcher
-   ├── discord.rs    client lifecycle, event bridge, auto show/hide
-   ├── windows.rs    placement, click-through, always-on-top, bounds memory
-   ├── tray.rs       StatusNotifierItem menu
-   ├── control.rs    control socket server + CLI client
-   └── platform.rs   session detection, NVIDIA/WebKit mitigations
+src-tauri (Tauri shell; native GTK overlay; WebKit only for Settings)
+   ├── main.rs         CLI, single-instance handoff, setup, window events
+   ├── native_overlay.rs native GTK3/cairo overlay, avatars, input, placement
+   ├── commands.rs     invoke handlers + shared request dispatcher
+   ├── discord.rs      client lifecycle, event bridge, auto show/hide
+   ├── windows.rs      on-demand Settings window, WebKit child cleanup
+   ├── tray.rs         StatusNotifierItem menu
+   ├── control.rs      control socket server + CLI client
+   └── platform.rs     session detection, NVIDIA/WebKit mitigations
    ▲
-   │  Tauri events + invoke
+   │  Tauri events (config/state/status) + invoke (Settings only)
    ▼
-src/ (React 19 + TypeScript, two documents)
-   ├── index.html → src/main.tsx → overlay/Overlay.tsx
-   ├── settings.html → src/settings.tsx → settings/Settings.tsx
+src/ (React 19 + TypeScript)
+   ├── settings.html → src/settings.tsx → settings/Settings.tsx  (runtime, on demand)
+   ├── index.html → overlay/Overlay.tsx   (browser preview only; not loaded by the app)
    ├── lib/bridge.ts  invoke/listen, or a browser-only mock harness
    └── components/    ParticipantRow, controls, icons
 ```
@@ -50,8 +58,8 @@ against a real client. Putting it in a GUI-free crate means:
 - `cargo test -p discord-overlay-core` runs on any machine, including headless CI,
 - the socket protocol is tested against a **fake Discord server** using a real
   Unix socket (`crates/discord-overlay-core/tests/discord_session.rs`),
-- the Tauri layer is a thin adapter that only maps events onto windows and web
-  views.
+- the Tauri layer is a thin adapter that maps events onto the native overlay,
+  the tray and the on-demand settings web view.
 
 ## Discord connection lifecycle
 
@@ -86,8 +94,8 @@ against a real client. Putting it in a GUI-free crate means:
 `OverlayState` is the complete UI input: `me`, `channel`, `participants`,
 `history`, and a monotonic `revision`. The client emits a full snapshot on every
 change; the UI compares nothing and simply re-renders. Snapshots are only sent
-when the revision changes, so a resync that changes nothing does not touch the
-web view.
+when the revision changes, so a resync that changes nothing does not repaint the
+native overlay.
 
 Ordering is `self first, then case-insensitive display name, then id`. Speaking
 never reorders rows. `set_channel()` preserves live speaking flags for users that
@@ -95,27 +103,32 @@ were already present so a resync cannot make a talking user flicker.
 
 ## Window model
 
-Two windows, one process:
+One native overlay window; the settings web view only exists while it is open:
 
 | Window | Properties |
 | --- | --- |
-| `overlay` | transparent, decorations off, shadow off, always-on-top requested, skip taskbar, resizable, minimum 64×64 |
-| `settings` | normal decorated window, created hidden, close = hide (the app keeps running) |
+| native overlay (GTK) | one transparent `GtkWindow` + `DrawingArea`, decorations off (empty CSD titlebar on Wayland), always-on-top, skip taskbar/pager, accepts no keyboard focus, resizable, minimum 64×64 |
+| `settings` (WebKit) | normal decorated window, created on first use, destroyed on close; WebKit helpers are terminated afterwards |
 
-- **Click-through** is `set_ignore_cursor_events(true)`; the whole window stops
-  receiving input.
-- **Interactive mode** re-enables input, shows the toolbar, and uses
-  `startDragging()` from the web view (permission
-  `core:window:allow-start-dragging`).
-- **Anchoring** is pure arithmetic in `geometry.rs`: monitor rectangle, logical
-  window size, scale factor, anchor and offsets → physical position/size with
-  clamping. On Wayland the position request is ignored by the compositor; the
-  resize still applies.
-- **Manual mode** persists `outer_position()` and logical `inner_size()` on every
+- **Rendering** is cairo/Pango: rounded panels, avatars (gdk-pixbuf, circular
+  clip, bounded LRU cache), speaking ring, mute/deafen/bot icons, compact badges,
+  empty/status row, three layouts. Repaints happen only on state/config/pointer
+  events; there is no animation loop or polling.
+- **Click-through** installs an empty GTK input region; interactive mode
+  restores the default region, shows the toolbar and drags with
+  `begin_move_drag()` (no JavaScript involved).
+- **Anchoring** reuses the same arithmetic in `geometry.rs`: monitor rectangle,
+  logical window size, scale factor, anchor and offsets → physical
+  position/size with clamping. On Wayland the position request is ignored by
+  the compositor; the resize still applies.
+- **Manual mode** persists logical window size and, on X11, position on every
   move/resize, rate limited to one write per 500 ms. A stale position that no
   longer intersects any monitor is clamped back onto the primary monitor.
-- **Never focused on show**: `show_overlay()` does not call `set_focus()`, so the
+- **Never focused on show**: `show()` does not present/focus the window, so the
   overlay cannot steal keyboard focus from a game.
+- **Settings teardown**: closing the last web view makes the app terminate only
+  its own WebKit descendants (generation-guarded) and call `malloc_trim(0)`;
+  reopening Settings spawns fresh helpers.
 
 ## Configuration and secrets
 
@@ -139,7 +152,7 @@ masked id and a `hasSecret` boolean.
 
 | Thread | Responsibility |
 | --- | --- |
-| main | Tauri/GTK event loop, window operations |
+| main | GTK/Tauri event loop; native overlay painting and input |
 | `discord-ipc` | socket reads, auth, subscriptions, timers, reconnect |
 | `discord-events` | forwards core events into Tauri state + `emit` |
 | `control-socket` | accepts CLI requests, dispatches onto the main thread |
@@ -149,12 +162,12 @@ The Discord thread exits on `Stop` (set by `AppState::stop_client`), and the
 
 ## Front-end bridge and mock harness
 
-`src/lib/bridge.ts` checks for `__TAURI_INTERNALS__`. Inside Tauri every call is
-`invoke` and every subscription is `listen`. In a plain browser
-(`npm run dev`) the same UI is served by `src/lib/mock.ts`, which simulates a
-voice channel and speaking rotation. That harness exists so the layout can be
-reviewed without Discord; it is not part of the shipped application logic and is
-tree-shaken into the dev bundle only.
+The runtime overlay is native; it does not load React or any JavaScript. The
+settings document still uses `src/lib/bridge.ts` (`invoke` + `listen`). In a
+plain browser (`npm run dev`) both documents are served by `src/lib/mock.ts`,
+which simulates a voice channel and speaking rotation. That harness exists so
+the layout can be reviewed without Discord; it is not part of the shipped
+application logic.
 
 ## File map
 
@@ -162,10 +175,10 @@ tree-shaken into the dev bundle only.
 | --- | --- |
 | `crates/discord-overlay-core/src/` | Discord IPC, state, config, geometry, control |
 | `crates/discord-overlay-core/tests/discord_session.rs` | fake-Discord end-to-end tests |
-| `src-tauri/src/` | Tauri shell |
-| `src-tauri/tauri.conf.json` | windows, CSP, bundle |
-| `src-tauri/capabilities/default.json` | web view permissions |
-| `src/` | React overlay + settings |
+| `src-tauri/src/` | Tauri shell + native overlay renderer |
+| `src-tauri/tauri.conf.json` | CSP, bundle (no startup windows) |
+| `src-tauri/capabilities/default.json` | settings web view permissions |
+| `src/` | React settings + browser overlay preview |
 | `packaging/` | PKGBUILD, desktop entry, metainfo, Flatpak manifest, icons |
 | `scripts/` | icon generation, dev/build/check helpers |
 | `docs/` | research, Discord setup, milestones |

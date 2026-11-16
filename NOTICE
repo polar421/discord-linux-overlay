@@ -44,11 +44,14 @@ Overlayed, and it is not a replacement for the Overlayed project.
 | --- | --- | --- |
 | Tauri 2 | MIT / Apache-2.0 | application shell |
 | tauri-plugin-global-shortcut | MIT / Apache-2.0 | X11 global shortcuts |
-| React 19 | MIT | web views |
+| gtk-rs (`gtk`, `gdk`, `gdk-pixbuf`, `glib`, `pangocairo`) | MIT | native overlay rendering, avatars, text |
+| GTK 3 / Pango / cairo / gdk-pixbuf | LGPL-2.1+ / MPL-2.0 | system UI libraries used by the overlay |
+| React 19 | MIT | Settings web view and browser preview |
 | Vite | MIT | build tooling |
 | serde / serde_json | MIT / Apache-2.0 | serialization |
-| ureq (rustls) | MIT / Apache-2.0 | OAuth2 token exchange |
+| ureq (rustls) | MIT / Apache-2.0 | OAuth2 token exchange and avatar downloads |
 | thiserror | MIT / Apache-2.0 | error types |
+| libc | MIT / Apache-2.0 | `malloc_trim` after Settings closes |
 | env_logger / log | MIT / Apache-2.0 | diagnostics |
 
 Discord is a trademark of Discord Inc. This project uses Discord's local RPC

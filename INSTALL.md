@@ -8,8 +8,8 @@ with its own id, config directory and desktop entry.
 
 | Package (Arch) | Why |
 | --- | --- |
-| `webkit2gtk-4.1` | web view (Tauri on Linux) |
-| `gtk3` | window toolkit |
+| `gtk3` | window toolkit and **native overlay rendering** (Pango and gdk-pixbuf are pulled in by GTK) |
+| `webkit2gtk-4.1` | only the **on-demand Settings window**; the overlay never starts a web view |
 | `libayatana-appindicator` | tray icon (StatusNotifierItem) |
 | `librsvg` | SVG icon rendering |
 | `hicolor-icon-theme` | application icons |
@@ -17,6 +17,10 @@ with its own id, config directory and desktop entry.
 ```sh
 sudo pacman -S --needed webkit2gtk-4.1 gtk3 libayatana-appindicator librsvg hicolor-icon-theme
 ```
+
+The idle application uses about 38 MiB PSS / 65 MiB RSS for the whole process
+tree; Settings adds WebKit only while open. See
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 
 ## 2. Install options
 
